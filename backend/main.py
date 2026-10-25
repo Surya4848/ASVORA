@@ -9,7 +9,7 @@ import sqlite3
 import tempfile
 import uuid
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from email.message import EmailMessage
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
@@ -21,23 +21,37 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 E = os.environ.get
-DATA_FILE = os.path.abspath(E("DATA_FILE", os.path.join(os.path.dirname(__file__), "data.json")))
-ANALYTICS_FILE = os.path.abspath(E("ANALYTICS_FILE", os.path.join(os.path.dirname(DATA_FILE), "analytics.sqlite3")))
+DATA_FILE = os.path.abspath(os.path.join(BASE_DIR, E("DATA_FILE", "data.json")))
+ANALYTICS_FILE = os.path.abspath(os.path.join(BASE_DIR, E("ANALYTICS_FILE", "analytics.sqlite3")))
+UPLOADS_DIR = os.path.abspath(os.path.join(BASE_DIR, E("UPLOADS_DIR", "uploads")))
 SECRET = E("JWT_SECRET", "").strip()
 logger = logging.getLogger(__name__)
 pwd = CryptContext(schemes=["pbkdf2_sha256"])
 oauth = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
-app = FastAPI(title="ASVORA API")
+
+cors_origins_raw = E("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+cors_origins = [origin.strip() for origin in cors_origins_raw.split(",") if origin.strip()]
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await seed()
+    yield
+
+
+app = FastAPI(title="ASVORA API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=E("CORS_ORIGINS", "http://localhost:5173").split(","),
+    allow_origins=cors_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-os.makedirs("uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 now = lambda: dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
 COLS = {"services", "projects", "testimonials", "enquiries", "quotes", "media", "notifications"}
@@ -292,7 +306,6 @@ def send_enquiry_email(recipient: str, subject: str, body: str):
             server.send_message(message)
 
 
-@app.on_event("startup")
 async def seed():
     if len(SECRET) < 32:
         raise RuntimeError("Set JWT_SECRET to a fixed random value of at least 32 characters.")
@@ -370,7 +383,7 @@ async def public():
     return {
         "content": {k: v for k, v in content.items() if k != "_id"},
         **{
-            col: [ser(row) for row in sorted(store[col], key=lambda row: row["created"]) if row.get("published") is not False]
+            col: [ser(row) for row in sorted(store[col], key=lambda row: row.get("created") or dt.datetime.min) if row.get("published") is not False]
             for col in ("services", "projects", "testimonials")
         },
     }
@@ -493,7 +506,7 @@ async def upload(file: UploadFile = File(...), _=Depends(auth)):
     if len(data) > 5_000_000:
         raise HTTPException(400, "Max 5MB")
     name = uuid.uuid4().hex + ext
-    with open(os.path.join("uploads", name), "wb") as image:
+    with open(os.path.join(UPLOADS_DIR, name), "wb") as image:
         image.write(data)
     row = insert("media", {"title": file.filename, "url": f"/uploads/{name}", "file": name, "created": now()})
     save_store()
@@ -511,7 +524,7 @@ async def list_(col: str, q: str = "", status: str = "", _=Depends(auth)):
         rows = [row for row in rows if row.get("status") == status]
     ordered = sorted(
         rows,
-        key=lambda row: row.get("created", dt.datetime.min),
+        key=lambda row: row.get("created") or dt.datetime.min,
         reverse=col not in ("services", "projects", "testimonials"),
     )
     return [
@@ -551,7 +564,7 @@ async def delete(col: str, id: str, _=Depends(auth)):
         store[col].remove(row)
         if col == "media":
             try:
-                os.remove(os.path.join("uploads", row["file"]))
+                os.remove(os.path.join(UPLOADS_DIR, row["file"]))
             except OSError:
                 pass
         save_store()

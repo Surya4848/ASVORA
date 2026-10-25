@@ -5,7 +5,7 @@ import { api, browserOnlyDemo, tok, media } from './api'
 type F = { k: string; l: string; t?: 'area' | 'bool' | 'num' | 'img' }
 const CFG: Record<string, { title: string; f: F[]; status?: string[]; ro?: boolean }> = {
   services: { title: 'Services', f: [{ k: 'icon', l: 'Icon (emoji/symbol)' }, { k: 'title', l: 'Title' }, { k: 'description', l: 'Description', t: 'area' }, { k: 'published', l: 'Published', t: 'bool' }] },
-  projects: { title: 'Projects', f: [{ k: 'title', l: 'Title' }, { k: 'category', l: 'Category' }, { k: 'result', l: 'Key result' }, { k: 'description', l: 'Description', t: 'area' }, { k: 'caseStudyUrl', l: 'Case study URL (optional)' }, { k: 'image', l: 'Image URL (pick from Media)', t: 'img' }, { k: 'published', l: 'Published', t: 'bool' }] },
+  projects: { title: 'Works', f: [{ k: 'title', l: 'Title' }, { k: 'category', l: 'Category' }, { k: 'result', l: 'Key result' }, { k: 'description', l: 'Description', t: 'area' }, { k: 'caseStudyUrl', l: 'Case study URL (optional)' }, { k: 'image', l: 'Image URL (pick from Media)', t: 'img' }, { k: 'published', l: 'Published', t: 'bool' }] },
   testimonials: { title: 'Testimonials', f: [{ k: 'name', l: 'Name' }, { k: 'role', l: 'Role / company' }, { k: 'quote', l: 'Quote', t: 'area' }, { k: 'rating', l: 'Rating (1-5)', t: 'num' }, { k: 'published', l: 'Published', t: 'bool' }] },
   enquiries: { title: 'Enquiries', ro: true, status: ['new', 'in-progress', 'closed'], f: [] },
   quotes: { title: 'Quote requests', ro: true, status: ['new', 'in-progress', 'quoted', 'closed'], f: [] },
@@ -74,13 +74,13 @@ function Manager({ col }: { col: string }) {
     catch (x: any) { setError(x.message || 'Could not update this status.') }
   }
   return <div><div className="mb-5 flex flex-wrap gap-3"><input className="inp max-w-xs" placeholder="Search…" value={q} onChange={e => setQ(e.target.value)} />
-    {cfg.status && <select className="inp max-w-[180px]" value={sf} onChange={e => setSf(e.target.value)}><option value="">All statuses</option>{cfg.status.map(s => <option key={s}>{s}</option>)}</select>}
+    {cfg.status && <select className="inp max-w-[180px] bg-panel text-white cursor-pointer" value={sf} onChange={e => setSf(e.target.value)}><option value="" className="bg-panel text-white">All statuses</option>{cfg.status.map(s => <option key={s} value={s} className="bg-panel text-white">{s}</option>)}</select>}
     {!cfg.ro && <button className="btn-p ml-auto" onClick={() => { api('/admin/media').then(setM).catch((x: any) => setError(x.message)); setEd({ published: true }) }}>+ Add</button>}</div>
     {error && <p role="alert" className="mb-4 text-sm text-red-300">{error}</p>}
     <div className="space-y-3">{rows.map(r => <Card key={r.id} className="flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0 flex-1">{cfg.ro ? <><b>{r.name}</b> <span className="text-sm text-white/50">{r.email}</span>{r.service && <p className="text-xs text-lime">{r.service} · {r.budget}</p>}<p className="mt-2 text-sm text-white/70">{r.message}</p><p className="mt-1 text-xs text-white/30">{new Date(r.created).toLocaleString()}</p></>
         : <><b>{r.icon} {r.title || r.name}</b> {r.published === false && <span className="ml-2 rounded bg-yellow-500/20 px-2 text-xs text-yellow-300">hidden</span>}<p className="mt-1 line-clamp-2 text-sm text-white/60">{r.description || r.quote}</p></>}</div>
-      <div className="flex items-center gap-2">{cfg.ro ? <select className="inp !w-auto !py-2" value={r.status} onChange={e => setStatus(r, e.target.value)}>{cfg.status!.map(s => <option key={s}>{s}</option>)}</select>
+      <div className="flex items-center gap-2">{cfg.ro ? <select className="inp !w-auto !py-2 bg-panel text-white cursor-pointer" value={r.status} onChange={e => setStatus(r, e.target.value)}>{cfg.status!.map(s => <option key={s} value={s} className="bg-panel text-white">{s}</option>)}</select>
         : <button className="btn-g !py-2" onClick={() => { api('/admin/media').then(setM).catch((x: any) => setError(x.message)); setEd(r) }}>Edit</button>}<button className="btn-g !py-2 text-red-400" onClick={() => del(r.id)}>Delete</button></div></Card>)}
       {loading && <p className="py-10 text-center text-white/40">Loading…</p>}
       {!loading && !rows.length && !error && <p className="py-10 text-center text-white/40">Nothing here yet.</p>}</div>
@@ -195,13 +195,19 @@ export default function Admin() {
   useEffect(() => { localStorage.setItem('tp_admin_section', v) }, [v])
   useEffect(() => { if (ok) { api('/auth/me').then(setMe).catch(() => setOk(false)); api('/admin/stats').then(s => { setU(s.unread); setAdminError('') }).catch((x: any) => setAdminError(x.message || 'Could not load admin status.')) } }, [ok, v])
   if (!ok) return <Login ok={() => setOk(true)} />; if (!me) return <p className="p-8">{adminError || 'Loading admin…'}</p>
-  return <div className="flex min-h-screen">
-    <aside className={`fixed inset-y-0 z-40 w-[min(18rem,85vw)] border-r border-white/10 bg-panel p-4 transition-transform sm:p-5 md:static md:w-64 md:translate-x-0 ${open ? '' : '-translate-x-full'}`}>
-      <a href="/" className="mb-8 block font-display text-xl font-bold">TECH<span className="text-lime">PRO</span> <span className="text-xs text-white/40">admin</span></a>
-      <nav className="space-y-1">{NAV.map(([k, l]) => <button key={k} onClick={() => { setV(k); setOpen(false) }} className={`flex w-full items-center justify-between rounded-xl px-4 py-2.5 text-left text-sm transition ${v === k ? 'bg-brand/20 text-lime' : 'text-white/60 hover:bg-white/5'}`}>{l}{k === 'notifications' && unread > 0 && <b className="rounded-full bg-lime px-2 text-xs text-black">{unread}</b>}</button>)}
-        <button className="mt-6 w-full rounded-xl px-4 py-2.5 text-left text-sm text-red-400 hover:bg-white/5" onClick={() => { localStorage.removeItem('tp_token'); setOk(false) }}>⏻ Logout</button></nav></aside>
+  return <div className="flex min-h-screen bg-ink">
+    <aside className={`fixed inset-y-0 z-40 flex flex-col w-[min(18rem,85vw)] border-r border-white/10 bg-panel p-4 sm:p-5 transition-transform md:sticky md:top-0 md:h-screen md:max-h-screen md:w-64 md:translate-x-0 overscroll-contain ${open ? '' : '-translate-x-full'}`}>
+      <div className="shrink-0 mb-6 flex items-center justify-between">
+        <a href="/" className="font-display text-xl font-bold">AS<span className="text-lime">VORA</span> <span className="text-xs text-white/40">admin</span></a>
+        <a href="/" target="_blank" rel="noopener noreferrer" className="rounded-lg bg-white/5 px-2 py-1 text-xs text-white/50 hover:bg-white/10 hover:text-lime transition" title="Open public site">↗ Site</a>
+      </div>
+      <nav className="flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1 scrollbar-thin">
+        {NAV.map(([k, l]) => <button key={k} onClick={() => { setV(k); setOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }} className={`flex w-full items-center justify-between rounded-xl px-4 py-2.5 text-left text-sm transition ${v === k ? 'bg-brand/20 text-lime font-medium' : 'text-white/60 hover:bg-white/5'}`}>{l}{k === 'notifications' && unread > 0 && <b className="rounded-full bg-lime px-2 text-xs text-black">{unread}</b>}</button>)}
+        <button className="mt-6 w-full rounded-xl px-4 py-2.5 text-left text-sm text-red-400 hover:bg-white/5" onClick={() => { localStorage.removeItem('tp_token'); setOk(false) }}>⏻ Logout</button>
+      </nav>
+    </aside>
     {open && <button aria-label="Close navigation menu" onClick={() => setOpen(false)} className="fixed inset-0 z-30 bg-black/60 md:hidden" />}
-    <main className="min-w-0 flex-1 p-4 sm:p-6 md:p-10"><div className="mb-6 flex items-center justify-between gap-3 sm:mb-8"><button aria-label="Open navigation menu" aria-expanded={open} onClick={() => setOpen(!open)} className="grid h-11 w-11 shrink-0 place-items-center text-2xl md:hidden">☰</button><h1 className="min-w-0 flex-1 truncate font-display text-2xl font-bold capitalize sm:text-3xl">{v}</h1><span className="max-w-[8rem] truncate text-right text-xs text-white/50 sm:max-w-none sm:text-sm">{me.name}</span></div>
+    <main className="min-w-0 flex-1 p-4 sm:p-6 md:p-10"><div className="mb-6 flex items-center justify-between gap-3 sm:mb-8"><button aria-label="Open navigation menu" aria-expanded={open} onClick={() => setOpen(!open)} className="grid h-11 w-11 shrink-0 place-items-center text-2xl md:hidden">☰</button><h1 className="min-w-0 flex-1 truncate font-display text-2xl font-bold capitalize sm:text-3xl">{v === 'projects' ? 'Works' : v}</h1><span className="max-w-[8rem] truncate text-right text-xs text-white/50 sm:max-w-none sm:text-sm">{me.name}</span></div>
       {adminError && <p role="alert" className="mb-4 text-sm text-red-300">{adminError}</p>}
       {v === 'dashboard' ? <Dash /> : CFG[v] ? <Manager col={v} /> : v === 'about' || v === 'contact' ? <SectionEditor section={v} /> : v === 'content' ? <Content /> : v === 'quote-settings' ? <QuoteSettings /> : v === 'media' ? <Media /> : v === 'notifications' ? <Notes /> : <Profile me={me} onSaved={setMe} />}</main></div>
 }
