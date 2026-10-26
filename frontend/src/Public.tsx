@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams, useNavigate } from 'react-router-dom'
 import { motion, useScroll, useSpring, useTransform, AnimatePresence } from 'framer-motion'
 import { api, media } from './api'
 
@@ -93,6 +93,42 @@ function Nav({ c, hasProjects, hasTestimonials, currentPath, onStartProject }: a
     return () => window.removeEventListener('scroll', f)
   }, [])
 
+  // Auto-close menu when path changes
+  useEffect(() => {
+    setO(false)
+  }, [currentPath])
+
+  // Close on Escape key press
+  useEffect(() => {
+    if (!o) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setO(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [o])
+
+  // Close when resized to desktop viewport
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth >= 768) setO(false)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  // Prevent background scroll when mobile menu is open
+  useEffect(() => {
+    if (o) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [o])
+
   const navItems = [
     { to: '/', label: 'Home', active: currentPath === '/' },
     { to: '/services', label: 'Services', active: currentPath.startsWith('/services') },
@@ -102,78 +138,138 @@ function Nav({ c, hasProjects, hasTestimonials, currentPath, onStartProject }: a
     { to: '/#contact', label: 'Contact', active: false },
   ]
 
+  const handleHashLinkClick = (e: React.MouseEvent, to: string) => {
+    setO(false)
+    const hash = to.replace('/', '')
+    if (window.location.pathname === '/' && hash.startsWith('#')) {
+      e.preventDefault()
+      const el = document.getElementById(hash.slice(1))
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' })
+        window.history.pushState(null, '', hash)
+      }
+    }
+  }
+
   return (
-    <motion.header initial={{ y: -80 }} animate={{ y: 0 }} className="fixed inset-x-0 top-0 z-50 flex justify-center px-3 pt-3 sm:px-4 sm:pt-4">
-      <nav className={`flex w-full max-w-6xl items-center justify-between rounded-full px-4 py-3 sm:px-5 transition-all duration-500 ${s ? 'border border-white/10 bg-ink/80 backdrop-blur-xl shadow-xl shadow-black/30' : ''}`}>
-        <Link to="/" className="font-display text-xl font-bold tracking-tight">
-          {c.brand || 'ASVORA'}
-        </Link>
-        <div className="hidden gap-7 md:flex">
-          {navItems.map(({ to, label, active }) =>
-            to.startsWith('/#') ? (
-              <a key={to} href={to} className="group relative text-sm text-white/70 transition hover:text-white">
-                {label}
-                <span className="absolute -bottom-1 left-0 h-px w-0 bg-lime transition-all group-hover:w-full" />
-              </a>
-            ) : (
-              <Link key={to} to={to} className={`group relative text-sm transition ${active ? 'text-lime font-semibold' : 'text-white/70 hover:text-white'}`}>
-                {label}
-                <span className={`absolute -bottom-1 left-0 h-px transition-all ${active ? 'w-full bg-lime' : 'w-0 bg-lime group-hover:w-full'}`} />
-              </Link>
-            )
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => onStartProject()}
-          className="btn-p hidden md:inline-flex !py-2.5 !px-5 text-xs"
-        >
-          Start your project
-        </button>
-        <button
-          aria-label={o ? 'Close menu' : 'Open menu'}
-          aria-expanded={o}
-          aria-controls="mobile-navigation"
-          onClick={() => setO(!o)}
-          className="grid h-11 w-11 place-items-center text-2xl md:hidden"
-        >
-          {o ? '✕' : '☰'}
-        </button>
-      </nav>
-      <AnimatePresence>
-        {o && (
-          <motion.div
-            id="mobile-navigation"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="card absolute inset-x-3 top-[4.5rem] flex flex-col gap-1 bg-ink/95 p-4 sm:inset-x-4 md:hidden shadow-2xl"
-          >
-            {navItems.map(({ to, label }) =>
+    <>
+      <motion.header initial={{ y: -80 }} animate={{ y: 0 }} className="fixed inset-x-0 top-0 z-50 flex justify-center px-3 pt-3 sm:px-4 sm:pt-4">
+        <nav className={`flex w-full max-w-6xl items-center justify-between rounded-full px-4 py-3 sm:px-5 transition-all duration-500 ${s ? 'border border-white/10 bg-ink/80 backdrop-blur-xl shadow-xl shadow-black/30' : ''}`}>
+          <Link to="/" onClick={() => setO(false)} className="font-display text-xl font-bold tracking-tight">
+            {c.brand || 'ASVORA'}
+          </Link>
+
+          {/* Desktop Navigation */}
+          <div className="hidden items-center gap-7 md:flex">
+            {navItems.map(({ to, label, active }) =>
               to.startsWith('/#') ? (
-                <a key={to} href={to} onClick={() => setO(false)} className="rounded-xl px-4 py-3 text-sm hover:bg-white/5">
+                <a key={to} href={to} onClick={(e) => handleHashLinkClick(e, to)} className="group relative text-sm text-white/70 transition hover:text-white">
                   {label}
+                  <span className="absolute -bottom-1 left-0 h-px w-0 bg-lime transition-all group-hover:w-full" />
                 </a>
               ) : (
-                <Link key={to} to={to} onClick={() => setO(false)} className="rounded-xl px-4 py-3 text-sm hover:bg-white/5">
+                <Link key={to} to={to} className={`group relative text-sm transition ${active ? 'text-lime font-semibold' : 'text-white/70 hover:text-white'}`}>
                   {label}
+                  <span className={`absolute -bottom-1 left-0 h-px transition-all ${active ? 'w-full bg-lime' : 'w-0 bg-lime group-hover:w-full'}`} />
                 </Link>
               )
             )}
-            <button
-              type="button"
-              onClick={() => {
-                setO(false)
-                onStartProject()
-              }}
-              className="btn-p mt-3 text-center !py-3 text-sm w-full"
+          </div>
+
+          <div className="hidden md:flex items-center gap-3">
+            {onStartProject && (
+              <button
+                type="button"
+                onClick={() => onStartProject()}
+                className="btn-p !py-2.5 !px-5 text-xs font-semibold"
+              >
+                Start your project
+              </button>
+            )}
+          </div>
+
+          {/* Mobile 3-Line Hamburger / Close Button */}
+          <button
+            type="button"
+            aria-label={o ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={o}
+            aria-controls="mobile-navigation"
+            onClick={() => setO(prev => !prev)}
+            className="grid h-10 w-10 place-items-center rounded-xl bg-white/5 hover:bg-white/10 text-xl md:hidden transition border border-white/10 active:scale-95 text-white"
+          >
+            {o ? '✕' : '☰'}
+          </button>
+        </nav>
+      </motion.header>
+
+      {/* Mobile Menu Backdrop and Drawer */}
+      <AnimatePresence>
+        {o && (
+          <>
+            {/* Backdrop: Clicking anywhere outside closes the 3-line menu */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setO(false)}
+              className="fixed inset-0 z-40 bg-black/75 backdrop-blur-sm md:hidden"
+              aria-hidden="true"
+            />
+
+            {/* Dropdown Menu Drawer */}
+            <motion.div
+              id="mobile-navigation"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Site Navigation"
+              initial={{ opacity: 0, y: -15, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.98 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="card fixed inset-x-3 top-20 z-50 flex flex-col gap-1.5 bg-panel/95 backdrop-blur-2xl border border-white/15 p-4 sm:inset-x-6 sm:p-5 shadow-2xl md:hidden rounded-2xl max-h-[calc(100vh-6rem)] overflow-y-auto"
             >
-              Start your project →
-            </button>
-          </motion.div>
+              {navItems.map(({ to, label, active }) =>
+                to.startsWith('/#') ? (
+                  <a
+                    key={to}
+                    href={to}
+                    onClick={(e) => handleHashLinkClick(e, to)}
+                    className={`rounded-xl px-4 py-3 text-sm font-medium transition ${active ? 'bg-lime/20 text-lime font-semibold' : 'text-white/80 hover:bg-white/5 hover:text-white'}`}
+                  >
+                    {label}
+                  </a>
+                ) : (
+                  <Link
+                    key={to}
+                    to={to}
+                    onClick={() => setO(false)}
+                    className={`rounded-xl px-4 py-3 text-sm font-medium transition ${active ? 'bg-lime/20 text-lime font-semibold' : 'text-white/80 hover:bg-white/5 hover:text-white'}`}
+                  >
+                    {label}
+                  </Link>
+                )
+              )}
+
+              {onStartProject && (
+                <div className="pt-2 border-t border-white/10 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setO(false)
+                      onStartProject()
+                    }}
+                    className="btn-p w-full !py-3 text-sm text-center font-semibold"
+                  >
+                    Start your project →
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
-    </motion.header>
+    </>
   )
 }
 
@@ -294,7 +390,8 @@ function QuoteModal({
     setSending(true)
     setSt('')
     try {
-      await api('/quotes', { method: 'POST', body: f })
+      const fullPhone = `${f.countryCode || '+91'}${f.phone || ''}`
+      await api('/quotes', { method: 'POST', body: { ...f, phone: fullPhone } })
       setSt('ok')
     } catch (err: any) {
       setSt(err.message || 'Could not send quote request. Please try again.')
@@ -385,6 +482,38 @@ function QuoteModal({
                   </label>
                 </div>
                 <label className="block text-xs text-white/60">
+                  Phone Number *
+                  <div className="flex gap-2 mt-1">
+                    <select
+                      className="inp w-28 bg-panel text-white cursor-pointer shrink-0"
+                      value={f.countryCode || '+91'}
+                      onChange={e => setF({ ...f, countryCode: e.target.value })}
+                    >
+                      <option value="+91" className="bg-panel text-white">🇮🇳 +91</option>
+                      <option value="+1" className="bg-panel text-white">🇺🇸 +1</option>
+                      <option value="+44" className="bg-panel text-white">🇬🇧 +44</option>
+                      <option value="+61" className="bg-panel text-white">🇦🇺 +61</option>
+                      <option value="+971" className="bg-panel text-white">🇦🇪 +971</option>
+                    </select>
+
+                    <input
+                      required
+                      type="tel"
+                      className="inp flex-1"
+                      placeholder="Phone Number"
+                      value={f.phone || ''}
+                      onChange={e =>
+                        setF({
+                          ...f,
+                          phone: e.target.value.replace(/\D/g, '').slice(0, (f.countryCode || '+91') === '+91' ? 10 : 15),
+                        })
+                      }
+                      pattern={(f.countryCode || '+91') === '+91' ? '[6-9][0-9]{9}' : '[0-9]{6,15}'}
+                      title={(f.countryCode || '+91') === '+91' ? 'Enter a valid 10-digit Indian mobile number' : 'Enter a valid phone number'}
+                    />
+                  </div>
+                </label>
+                <label className="block text-xs text-white/60">
                   Select Service *
                   <select
                     required
@@ -455,7 +584,8 @@ function ContactSection({ d }: { d: any }) {
     setSending(true)
     setSt('')
     try {
-      await api('/' + tab, { method: 'POST', body: f })
+      const fullPhone = `${f.countryCode || '+91'}${f.phone || ''}`
+      await api('/' + tab, { method: 'POST', body: { ...f, phone: fullPhone } })
       setSt('ok')
       setF({})
     } catch (x: any) {
@@ -504,12 +634,22 @@ function ContactSection({ d }: { d: any }) {
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <input
-            required
-            className="inp"
-            placeholder="Name"
-            value={f.name || ''}
-            onChange={e => setF({ ...f, name: e.target.value })}
-          />
+  required
+  type="text"
+  className="inp"
+  placeholder="Name"
+  value={f.name || ''}
+  onChange={e =>
+    setF({
+      ...f,
+      name: e.target.value.replace(/[^a-zA-Z\s'-]/g, ''),
+    })
+  }
+  minLength={2}
+  maxLength={50}
+  pattern="[A-Za-z][A-Za-z\s'-]*"
+  title="Enter a valid name using letters, spaces, hyphens, or apostrophes."
+/>
           <input
             required
             type="email"
@@ -517,7 +657,25 @@ function ContactSection({ d }: { d: any }) {
             placeholder="Email"
             value={f.email || ''}
             onChange={e => setF({ ...f, email: e.target.value })}
+            onInvalid={e =>
+              e.currentTarget.setCustomValidity(
+                'Please enter a valid email address.'
+              )
+            }
+            onInput={e => e.currentTarget.setCustomValidity('')}
           />
+         <input
+  required
+  type="tel"
+  className="inp"
+  placeholder="Phone Number"
+  value={f.phone || ''}
+  onChange={e =>
+    setF({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })
+  }
+  pattern="[6-9][0-9]{9}"
+  title="Enter a valid 10-digit Indian mobile number"
+/>
         </div>
         {tab === 'quotes' && (
           <div>
@@ -558,6 +716,7 @@ function ContactSection({ d }: { d: any }) {
 }
 
 function ServicesPage({ d, onStartProject }: { d: any; onStartProject: (serviceTitle?: string) => void }) {
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const activeParam = params.get('service') || ''
   const activeService = d.services.find((s: any) => s.title.toLowerCase() === activeParam.toLowerCase())
@@ -570,59 +729,45 @@ function ServicesPage({ d, onStartProject }: { d: any; onStartProject: (serviceT
     }
   }
 
+  const goBack = () => {
+    if (activeService) {
+      setFilter('')
+    } else if (window.history.length > 1) {
+      navigate(-1)
+    } else {
+      navigate('/')
+    }
+  }
+
   return (
     <div className="pt-28 pb-16 space-y-12">
       <div className="mx-auto max-w-4xl px-4">
         <div className="mb-6">
-          <Link to="/" className="btn-g !py-2 !px-4 text-xs inline-flex items-center gap-2">
-            ← Back to Home
-          </Link>
+          <button
+            type="button"
+            onClick={goBack}
+            className="btn-g !py-2 !px-4 text-xs inline-flex items-center gap-2 hover:border-lime/40 transition cursor-pointer"
+            title="Go back"
+          >
+            ← {activeService ? 'Back to All Services' : 'Back'}
+          </button>
         </div>
         <div className="text-center">
           <Tag>Services & Capabilities</Tag>
           <h1 className="mt-5 font-display text-4xl font-bold sm:text-5xl md:text-6xl">
-            Creative digital work tailored for your brand
+            {activeService ? activeService.title : 'Creative digital work tailored for your brand'}
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-white/60">
-            Click any service to view its detailed capabilities and real showcase works.
+            {activeService
+              ? activeService.description
+              : 'Explore our specialized services crafted to elevate your business online.'}
           </p>
-
-          <div className="mt-8 flex flex-wrap justify-center gap-2">
-            <button
-              type="button"
-              onClick={() => setFilter('')}
-              className={`rounded-full px-4 py-2 text-xs font-semibold transition ${!activeParam ? 'bg-lime text-black font-bold' : 'border border-white/10 bg-white/5 text-white/70 hover:bg-white/10'}`}
-            >
-              ✦ All Services
-            </button>
-            {d.services.map((s: any) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setFilter(s.title)}
-                className={`rounded-full px-4 py-2 text-xs font-semibold transition flex items-center gap-1.5 ${activeParam.toLowerCase() === s.title.toLowerCase() ? 'bg-lime text-black font-bold' : 'border border-white/10 bg-white/5 text-white/70 hover:bg-white/10'}`}
-              >
-                <span>{s.icon}</span>
-                <span>{s.title}</span>
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
       {activeService ? (
         <section className="mx-auto max-w-6xl px-4 space-y-10">
-          <div className="mb-2">
-            <button
-              type="button"
-              onClick={() => setFilter('')}
-              className="btn-g !py-2 !px-4 text-xs inline-flex items-center gap-2"
-            >
-              ← Back to All Services
-            </button>
-          </div>
-
-          <div className="card p-8 sm:p-10 border-brand/40 bg-gradient-to-br from-panel to-white/[0.02]">
+          <div className="card p-6 sm:p-10 border-brand/40 bg-gradient-to-br from-panel to-white/[0.02]">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
               <div>
                 <div className="mb-4 inline-grid h-16 w-16 place-items-center rounded-3xl bg-brand/20 text-4xl text-lime">
@@ -635,7 +780,7 @@ function ServicesPage({ d, onStartProject }: { d: any; onStartProject: (serviceT
                 <button
                   type="button"
                   onClick={() => onStartProject(activeService.title)}
-                  className="btn-p !py-3 !px-6"
+                  className="btn-p !py-3 !px-6 text-sm font-semibold"
                 >
                   Start a {activeService.title} project →
                 </button>
@@ -644,98 +789,129 @@ function ServicesPage({ d, onStartProject }: { d: any; onStartProject: (serviceT
           </div>
 
           <div>
-            <div className="mb-6 flex items-center justify-between">
-              <h3 className="font-display text-2xl font-bold">
-                Works in {activeService.title}
-              </h3>
-              <Link to="/work" className="text-xs text-lime hover:underline font-semibold">
-                View all works →
-              </Link>
-            </div>
             {(() => {
               const matched = d.projects.filter((p: any) => matchesService(p.category, activeService.title))
-              return matched.length > 0 ? (
-                <div className="grid gap-6 md:grid-cols-2">
-                  {matched.map((p: any, i: number) => (
-                    <ProjectCard key={p.id} p={p} index={i} onStartProject={onStartProject} />
-                  ))}
-                </div>
-              ) : (
-                <div className="card p-10 text-center text-white/60 space-y-3">
-                  <p>Our featured projects for {activeService.title} will be showcased here soon.</p>
-                  <button
-                    type="button"
-                    onClick={() => onStartProject(activeService.title)}
-                    className="btn-p inline-flex !py-2.5 !px-5 text-xs"
-                  >
-                    Be our next showcase project →
-                  </button>
+              return (
+                <div className="space-y-6">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-display text-2xl font-bold">
+                        Works in {activeService.title}
+                      </h3>
+                      <p className="text-xs text-white/50 mt-1">Featured showcase projects delivered in this capability</p>
+                    </div>
+                    {matched.length > 0 && (
+                      <Link
+                        to={`/work?service=${encodeURIComponent(activeService.title)}`}
+                        className="text-xs text-lime hover:underline font-semibold flex items-center gap-1"
+                      >
+                        View all {activeService.title} works in Portfolio →
+                      </Link>
+                    )}
+                  </div>
+
+                  {matched.length > 0 ? (
+                    <div className="space-y-6">
+                      <div className="grid gap-6 md:grid-cols-2">
+                        {matched.slice(0, 4).map((p: any, i: number) => (
+                          <ProjectCard key={p.id} p={p} index={i} onStartProject={onStartProject} />
+                        ))}
+                      </div>
+                      {matched.length > 4 ? (
+                        <div className="text-center pt-4">
+                          <Link
+                            to={`/work?service=${encodeURIComponent(activeService.title)}`}
+                            className="btn-g !py-3 !px-6 text-xs inline-flex items-center gap-2 text-lime font-semibold"
+                          >
+                            View all {matched.length} {activeService.title} works →
+                          </Link>
+                        </div>
+                      ) : (
+                        <div className="text-center pt-2">
+                          <Link
+                            to={`/work?service=${encodeURIComponent(activeService.title)}`}
+                            className="text-xs text-white/50 hover:text-lime underline"
+                          >
+                            View all {activeService.title} projects in full portfolio →
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="card p-10 text-center text-white/60 space-y-3">
+                      <p>Our featured projects for {activeService.title} will be showcased here soon.</p>
+                      <button
+                        type="button"
+                        onClick={() => onStartProject(activeService.title)}
+                        className="btn-p inline-flex !py-2.5 !px-5 text-xs font-semibold"
+                      >
+                        Be our next showcase project →
+                      </button>
+                    </div>
+                  )}
                 </div>
               )
             })()}
           </div>
         </section>
       ) : (
-        <section className="mx-auto max-w-6xl px-4 space-y-16">
-          {d.services.map((s: any) => {
-            const matched = d.projects.filter((p: any) => matchesService(p.category, s.title))
-            return (
-              <div key={s.id} className="space-y-6 pt-6 border-t border-white/10 first:border-t-0">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <span className="text-3xl sm:text-4xl">{s.icon}</span>
-                    <div>
-                      <h2 className="font-display text-2xl sm:text-3xl font-bold">{s.title}</h2>
-                      <p className="mt-1 text-sm text-white/60 max-w-xl">{s.description}</p>
+        <section className="mx-auto max-w-6xl px-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {d.services.map((s: any) => {
+              const matched = d.projects.filter((p: any) => matchesService(p.category, s.title))
+              return (
+                <div
+                  key={s.id}
+                  className="card p-6 sm:p-8 flex flex-col justify-between gap-6 border border-white/10 hover:border-lime/40 transition group"
+                >
+                  <div>
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="h-14 w-14 rounded-2xl bg-brand/20 text-3xl grid place-items-center text-lime group-hover:scale-105 transition">
+                        {s.icon}
+                      </div>
+                      <div>
+                        <h2 className="font-display text-2xl font-bold">{s.title}</h2>
+                        {matched.length > 0 ? (
+                          <span className="text-xs text-lime font-medium">
+                            {matched.length} {matched.length === 1 ? 'project' : 'projects'} available
+                          </span>
+                        ) : (
+                          <span className="text-xs text-white/40">Capabilities available</span>
+                        )}
+                      </div>
                     </div>
+                    <p className="text-sm text-white/70 leading-relaxed">{s.description}</p>
                   </div>
-                  <div className="flex gap-2">
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-white/10">
                     <button
                       type="button"
                       onClick={() => setFilter(s.title)}
-                      className="btn-g !py-2 !px-4 text-xs"
+                      className="btn-p !py-2.5 !px-5 text-xs font-semibold flex items-center gap-2"
                     >
-                      View this service only
+                      View Works →
                     </button>
                     <button
                       type="button"
                       onClick={() => onStartProject(s.title)}
-                      className="btn-p !py-2 !px-4 text-xs"
+                      className="btn-g !py-2.5 !px-4 text-xs font-medium"
                     >
-                      Request quote
+                      Request Quote
                     </button>
                   </div>
                 </div>
-
-                {matched.length > 0 ? (
-                  <div className="grid gap-6 md:grid-cols-2">
-                    {matched.map((p: any, i: number) => (
-                      <ProjectCard key={p.id} p={p} index={i} onStartProject={onStartProject} />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-white/40 italic">New portfolio items for {s.title} coming soon.</p>
-                )}
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </section>
       )}
 
-      <div className="text-center pt-8">
-        <button
-          type="button"
-          onClick={() => onStartProject()}
-          className="btn-p !py-3 !px-8 text-base"
-        >
-          Start your project with ASVORA →
-        </button>
-      </div>
     </div>
   )
 }
 
 function WorksPage({ d, onStartProject }: { d: any; onStartProject: (serviceTitle?: string) => void }) {
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const activeService = params.get('service') || ''
 
@@ -767,9 +943,20 @@ function WorksPage({ d, onStartProject }: { d: any; onStartProject: (serviceTitl
     <div className="pt-28 pb-16 space-y-12">
       <div className="mx-auto max-w-4xl px-4">
         <div className="mb-6">
-          <Link to="/" className="btn-g !py-2 !px-4 text-xs inline-flex items-center gap-2">
-            ← Back to Home
-          </Link>
+          <button
+            type="button"
+            onClick={() => {
+              if (window.history.length > 1) {
+                navigate(-1)
+              } else {
+                navigate('/')
+              }
+            }}
+            className="btn-g !py-2 !px-4 text-xs inline-flex items-center gap-2 hover:border-lime/40 transition cursor-pointer"
+            title="Go back to previous page"
+          >
+            ← Back
+          </button>
         </div>
         <div className="text-center">
           <Tag>Portfolio & Works</Tag>

@@ -278,6 +278,54 @@ def migrate_legacy_content():
     if legacy_testimonials:
         store["testimonials"] = [row for row in store["testimonials"] if row not in legacy_testimonials]
         changed = True
+    if backfill_notifications():
+        changed = True
+    return changed
+
+
+def backfill_notifications():
+    changed = False
+    for notif in store.get("notifications", []):
+        if notif.get("details"):
+            continue
+        title = notif.get("title", "").lower()
+        msg = notif.get("message", "")
+        email_match = re.search(r"\(([^)]+@[^)]+)\)", msg)
+        email = email_match.group(1).strip() if email_match else ""
+        name_match = re.match(r"^([^(]+)", msg)
+        name = name_match.group(1).strip() if name_match else ""
+
+        if "quote" in title:
+            quote = next((q for q in store.get("quotes", []) if (email and q.get("email") == email) or (name and q.get("name") == name)), None)
+            if quote:
+                notif.setdefault("type", "quotes")
+                notif.setdefault("targetId", quote.get("_id"))
+                notif.setdefault("name", quote.get("name", name))
+                notif.setdefault("email", quote.get("email", email))
+                notif.setdefault("phone", quote.get("phone", ""))
+                notif.setdefault("service", quote.get("service", ""))
+                notif.setdefault("budget", quote.get("budget", ""))
+                notif.setdefault("details", quote.get("message", ""))
+                changed = True
+        elif "enquiry" in title:
+            enquiry = next((e for e in store.get("enquiries", []) if (email and e.get("email") == email) or (name and e.get("name") == name)), None)
+            if enquiry:
+                notif.setdefault("type", "enquiries")
+                notif.setdefault("targetId", enquiry.get("_id"))
+                notif.setdefault("name", enquiry.get("name", name))
+                notif.setdefault("email", enquiry.get("email", email))
+                notif.setdefault("phone", enquiry.get("phone", ""))
+                notif.setdefault("details", enquiry.get("message", ""))
+                changed = True
+        elif "review" in title:
+            review = next((t for t in store.get("testimonials", []) if name and t.get("name") == name), None)
+            if review:
+                notif.setdefault("type", "testimonials")
+                notif.setdefault("targetId", review.get("_id"))
+                notif.setdefault("name", review.get("name", name))
+                notif.setdefault("details", review.get("quote", ""))
+                notif.setdefault("rating", review.get("rating", 5))
+                changed = True
     return changed
 
 
@@ -400,11 +448,24 @@ async def track(b: dict):
 
 
 async def intake(col: str, b: dict, label: str):
-    b = {k: str(v)[:3000] for k, v in b.items() if k in ("name", "email", "message", "service", "budget")}
+    b = {k: str(v)[:3000] for k, v in b.items() if k in ("name", "email", "phone", "message", "service", "budget")}
     if not b.get("name") or not b.get("email") or "@" not in b["email"]:
         raise HTTPException(422, "Name and valid email required")
-    insert(col, {**b, "status": "new", "created": now()})
-    insert("notifications", {"title": f"New {label}", "message": f"{b['name']} ({b['email']})", "read": False, "created": now()})
+    row = insert(col, {**b, "status": "new", "created": now()})
+    insert("notifications", {
+        "title": f"New {label}",
+        "message": f"{b['name']} ({b['email']})",
+        "type": col,
+        "targetId": row["_id"],
+        "name": b["name"],
+        "email": b["email"],
+        "phone": b.get("phone", ""),
+        "service": b.get("service", ""),
+        "budget": b.get("budget", ""),
+        "details": b.get("message", ""),
+        "read": False,
+        "created": now(),
+    })
     save_store()
     admin = find_one("admins")
     if admin and E("SMTP_HOST"):
@@ -436,7 +497,7 @@ async def review(b: ReviewSubmission):
         raise HTTPException(422, "Rating must be between 1 and 5 stars.")
     if len(quote_text) > 3000:
         raise HTTPException(422, "Review must be 3000 characters or fewer.")
-    insert("testimonials", {
+    rev_row = insert("testimonials", {
         "name": name,
         "role": "ASVORA visitor",
         "quote": quote_text or f"Rated {b.rating} out of 5 stars.",
@@ -447,6 +508,11 @@ async def review(b: ReviewSubmission):
     insert("notifications", {
         "title": "New review to approve",
         "message": f"{name} · {b.rating}/5 stars",
+        "type": "testimonials",
+        "targetId": rev_row["_id"],
+        "name": name,
+        "rating": b.rating,
+        "details": quote_text or f"Rated {b.rating} out of 5 stars.",
         "read": False,
         "created": now(),
     })

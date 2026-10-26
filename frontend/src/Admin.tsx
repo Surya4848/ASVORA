@@ -47,15 +47,302 @@ function Dash() {
       <Card><h3 className="mb-4 font-display">Top pages</h3>{s.top.length ? s.top.map((t: any) => <div key={t.path} className="flex justify-between border-b border-white/5 py-2 text-sm"><span>{t.path}</span><b>{t.n}</b></div>) : <p className="text-sm text-white/40">No traffic yet.</p>}</Card></div></div>
 }
 
-function Manager({ col }: { col: string }) {
-  const cfg = CFG[col], [rows, setRows] = useState<any[]>([]), [q, setQ] = useState(''), [sf, setSf] = useState(''), [ed, setEd] = useState<any>(null), [media_, setM] = useState<any[]>([]), [error, setError] = useState(''), [loading, setLoading] = useState(true)
+
+function RequestDetailModal({
+  item,
+  onClose,
+  onStatusChange,
+  onNavigate,
+}: {
+  item: any
+  onClose: () => void
+  onStatusChange?: (col: string, id: string, status: string) => Promise<void>
+  onNavigate?: (section: string) => void
+}) {
+  const [data, setData] = useState<any>(item)
+  const [copied, setCopied] = useState(false)
+  const [copiedMsg, setCopiedMsg] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    async function enrich() {
+      if (item.details && item.service !== undefined && (item.itemStatus || item.status)) return
+      const emailMatch = (item.message || '').match(/\(([^)]+@[^)]+)\)/)
+      const email = item.email || (emailMatch ? emailMatch[1] : '')
+      const name = item.name || (item.message || '').split('(')[0].trim()
+      const title = (item.title || '').toLowerCase()
+      const col = item.type || (title.includes('quote') ? 'quotes' : title.includes('enquiry') ? 'enquiries' : title.includes('review') ? 'testimonials' : null)
+
+      if (col && (col === 'quotes' || col === 'enquiries' || col === 'testimonials')) {
+        try {
+          const list = await api(`/admin/${col}`)
+          const match = list.find((x: any) => x.id === item.targetId || (email && x.email === email) || (name && x.name === name))
+          if (match && active) {
+            setData((prev: any) => ({
+              ...prev,
+              type: col,
+              targetId: match.id,
+              name: match.name || prev.name || name,
+              email: match.email || prev.email || email,
+              phone: match.phone ?? prev.phone,
+              service: match.service ?? prev.service,
+              budget: match.budget ?? prev.budget,
+              details: match.message ?? match.quote ?? prev.details,
+              itemStatus: match.status ?? prev.itemStatus ?? prev.status,
+              rating: match.rating ?? prev.rating,
+            }))
+          }
+        } catch {
+          // ignore error
+        }
+      }
+    }
+    enrich()
+    return () => { active = false }
+  }, [item])
+
+  const copyEmail = () => {
+    if (data.email) {
+      navigator.clipboard.writeText(data.email)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  const copyMessage = () => {
+    const text = data.details || data.message || data.quote || ''
+    if (text) {
+      navigator.clipboard.writeText(text)
+      setCopiedMsg(true)
+      setTimeout(() => setCopiedMsg(false), 2000)
+    }
+  }
+
+  const isQuote = data.type === 'quotes' || (data.title || '').toLowerCase().includes('quote')
+  const isEnquiry = data.type === 'enquiries' || (data.title || '').toLowerCase().includes('enquiry')
+  const isReview = data.type === 'testimonials' || (data.title || '').toLowerCase().includes('review')
+
+  const titleText = isQuote
+    ? 'Project Request Details'
+    : isEnquiry
+    ? 'Project Enquiry Details'
+    : isReview
+    ? 'Client Testimonial Review'
+    : data.title || 'Request Details'
+
+  const currentStatus = data.itemStatus || data.status || 'new'
+  const targetCol = data.type || (isQuote ? 'quotes' : isEnquiry ? 'enquiries' : null)
+  const targetId = data.targetId || data.id
+
+  const updateStatus = async (newStatus: string) => {
+    if (!targetCol || !targetId || !onStatusChange) return
+    setLoading(true)
+    setError('')
+    try {
+      await onStatusChange(targetCol, targetId, newStatus)
+      setData((prev: any) => ({ ...prev, itemStatus: newStatus, status: newStatus }))
+    } catch (err: any) {
+      setError(err.message || 'Could not update status')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const messageText = data.details || data.message || data.quote || 'No detailed message provided.'
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-3 sm:p-4 backdrop-blur-sm" onClick={onClose}>
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        onClick={e => e.stopPropagation()}
+        className="card max-h-[92vh] w-full max-w-xl space-y-5 overflow-y-auto bg-panel p-5 sm:p-7 shadow-2xl border border-white/10"
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${isQuote ? 'bg-lime/20 text-lime' : isEnquiry ? 'bg-cyan-500/20 text-cyan-300' : 'bg-amber-500/20 text-amber-300'}`}>
+                {isQuote ? '⚡ Project Request' : isEnquiry ? '✉ Project Enquiry' : '★ Testimonial'}
+              </span>
+              {data.created && (
+                <span className="text-xs text-white/40">
+                  {new Date(data.created).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                </span>
+              )}
+            </div>
+            <h2 className="mt-2 font-display text-xl sm:text-2xl font-bold">{titleText}</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-lg bg-white/5 text-white/60 hover:bg-white/10 hover:text-white transition"
+          >
+            ✕
+          </button>
+        </div>
+
+        {error && <p role="alert" className="text-xs text-red-300">{error}</p>}
+
+        {/* Client info card */}
+        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-white/40">Requester Information</p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold text-base text-white">{data.name || 'Anonymous'}</p>
+              {data.email && <p className="text-xs text-white/60">{data.email}</p>}
+              {data.phone && (
+                <p className="text-xs text-lime mt-1 font-medium flex items-center gap-1">
+                  <span>☎</span>
+                  <a href={`tel:${data.phone}`} className="hover:underline">{data.phone}</a>
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {data.phone && (
+                <a
+                  href={`tel:${data.phone}`}
+                  className="rounded-lg bg-lime/10 border border-lime/30 text-lime px-2.5 py-1.5 text-xs font-semibold hover:bg-lime/20 transition flex items-center gap-1"
+                  title="Call phone number"
+                >
+                  ☎ Call
+                </a>
+              )}
+              {data.email && (
+                <>
+                  <button
+                    type="button"
+                    onClick={copyEmail}
+                    className="rounded-lg bg-white/5 px-2.5 py-1.5 text-xs text-white/80 hover:bg-white/10 transition"
+                    title="Copy email to clipboard"
+                  >
+                    {copied ? '✓ Copied' : 'Copy Email'}
+                  </button>
+                  <a
+                    href={`mailto:${data.email}?subject=${encodeURIComponent(`ASVORA - Regarding your ${isQuote ? 'project request' : 'enquiry'}`)}`}
+                    className="rounded-lg bg-lime/20 px-2.5 py-1.5 text-xs font-semibold text-lime hover:bg-lime/30 transition flex items-center gap-1"
+                  >
+                    ✉ Reply
+                  </a>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Project Service & Budget Info */}
+        {(data.service || data.budget || isQuote || isEnquiry) && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5">
+              <span className="text-xs text-white/40 block">Requested Service</span>
+              <span className="font-semibold text-sm text-lime mt-1 block">
+                {data.service ? `💼 ${data.service}` : 'General / Not specified'}
+              </span>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5">
+              <span className="text-xs text-white/40 block">Project Budget</span>
+              <span className="font-semibold text-sm text-white mt-1 block">
+                {data.budget ? `💰 ${data.budget}` : 'Flexible / Standard'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Review rating if testimonial */}
+        {isReview && data.rating && (
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5">
+            <span className="text-xs text-white/40 block">Star Rating</span>
+            <span className="font-semibold text-amber-400 mt-1 block">
+              {'★'.repeat(data.rating)}{'☆'.repeat(5 - data.rating)} ({data.rating} / 5 stars)
+            </span>
+          </div>
+        )}
+
+        {/* Detailed Project Message / Requirements */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-white/40">
+              {isQuote ? 'Project Details & Requirements' : isReview ? 'Testimonial Review' : 'Enquiry Message'}
+            </p>
+            <button
+              type="button"
+              onClick={copyMessage}
+              className="text-xs text-lime hover:underline"
+            >
+              {copiedMsg ? '✓ Copied' : 'Copy Message'}
+            </button>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-ink p-4 text-sm text-white/90 leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto selection:bg-lime selection:text-black">
+            {messageText}
+          </div>
+        </div>
+
+        {/* Status manager (for quotes and enquiries) */}
+        {targetCol && targetId && onStatusChange && (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs text-white/40">Current Status</p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className={`inline-block h-2 w-2 rounded-full ${currentStatus === 'new' ? 'bg-amber-400 animate-pulse' : currentStatus === 'in-progress' ? 'bg-cyan-400' : currentStatus === 'quoted' ? 'bg-lime' : 'bg-white/40'}`} />
+                <span className="font-semibold text-sm capitalize">{currentStatus}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-white/50">Change:</span>
+              <select
+                disabled={loading}
+                className="inp !w-auto !py-1.5 !px-3 text-xs bg-panel text-white cursor-pointer"
+                value={currentStatus}
+                onChange={e => updateStatus(e.target.value)}
+              >
+                {(targetCol === 'quotes' ? ['new', 'in-progress', 'quoted', 'closed'] : ['new', 'in-progress', 'closed']).map(s => (
+                  <option key={s} value={s} className="bg-panel text-white capitalize">{s}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Footer actions */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
+          {onNavigate && targetCol ? (
+            <button
+              type="button"
+              onClick={() => { onClose(); onNavigate(targetCol) }}
+              className="text-xs text-lime hover:underline flex items-center gap-1"
+            >
+              Open in {targetCol === 'quotes' ? 'Quotes' : 'Enquiries'} table →
+            </button>
+          ) : <div />}
+          <div className="flex gap-2">
+            <button type="button" className="btn-g !py-2 !px-4 text-xs" onClick={onClose}>
+              Close
+            </button>
+            {data.email && (
+              <a
+                href={`mailto:${data.email}?subject=${encodeURIComponent(`ASVORA - Regarding your ${isQuote ? 'project request' : 'enquiry'}`)}`}
+                className="btn-p !py-2 !px-4 text-xs"
+              >
+                Reply to Client
+              </a>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+function Manager({ col, onNavigate }: { col: string; onNavigate?: (col: string) => void }) {
+  const cfg = CFG[col], [rows, setRows] = useState<any[]>([]), [q, setQ] = useState(''), [sf, setSf] = useState(''), [ed, setEd] = useState<any>(null), [detailItem, setDetailItem] = useState<any>(null), [media_, setM] = useState<any[]>([]), [error, setError] = useState(''), [loading, setLoading] = useState(true)
   const load = async () => {
     setLoading(true)
     try { setRows(await api(`/admin/${col}?q=${encodeURIComponent(q)}&status=${sf}`)); setError('') }
     catch (x: any) { setError(x.message || `Could not load ${cfg.title.toLowerCase()}.`) }
     finally { setLoading(false) }
   }
-  useEffect(() => { load() }, [col, q, sf]); useEffect(() => { setEd(null); setQ(''); setSf('') }, [col])
+  useEffect(() => { load() }, [col, q, sf]); useEffect(() => { setEd(null); setDetailItem(null); setQ(''); setSf('') }, [col])
   const save = async () => {
     try {
       if (ed.id) await api(`/admin/${col}/${ed.id}`, { method: 'PUT', body: ed })
@@ -78,10 +365,12 @@ function Manager({ col }: { col: string }) {
     {!cfg.ro && <button className="btn-p ml-auto" onClick={() => { api('/admin/media').then(setM).catch((x: any) => setError(x.message)); setEd({ published: true }) }}>+ Add</button>}</div>
     {error && <p role="alert" className="mb-4 text-sm text-red-300">{error}</p>}
     <div className="space-y-3">{rows.map(r => <Card key={r.id} className="flex flex-wrap items-start justify-between gap-4">
-      <div className="min-w-0 flex-1">{cfg.ro ? <><b>{r.name}</b> <span className="text-sm text-white/50">{r.email}</span>{r.service && <p className="text-xs text-lime">{r.service} · {r.budget}</p>}<p className="mt-2 text-sm text-white/70">{r.message}</p><p className="mt-1 text-xs text-white/30">{new Date(r.created).toLocaleString()}</p></>
+      <div className="min-w-0 flex-1">{cfg.ro ? <><b>{r.name}</b> <span className="text-sm text-white/50">{r.email}</span>{r.phone && <span className="ml-2 text-xs text-lime">☎ {r.phone}</span>}{r.service && <p className="text-xs text-lime">{r.service}{r.budget ? ` · ${r.budget}` : ''}</p>}<p className="mt-2 text-sm text-white/70 line-clamp-2">{r.message}</p><p className="mt-1 text-xs text-white/30">{new Date(r.created).toLocaleString()}</p></>
         : <><b>{r.icon} {r.title || r.name}</b> {r.published === false && <span className="ml-2 rounded bg-yellow-500/20 px-2 text-xs text-yellow-300">hidden</span>}<p className="mt-1 line-clamp-2 text-sm text-white/60">{r.description || r.quote}</p></>}</div>
-      <div className="flex items-center gap-2">{cfg.ro ? <select className="inp !w-auto !py-2 bg-panel text-white cursor-pointer" value={r.status} onChange={e => setStatus(r, e.target.value)}>{cfg.status!.map(s => <option key={s} value={s} className="bg-panel text-white">{s}</option>)}</select>
-        : <button className="btn-g !py-2" onClick={() => { api('/admin/media').then(setM).catch((x: any) => setError(x.message)); setEd(r) }}>Edit</button>}<button className="btn-g !py-2 text-red-400" onClick={() => del(r.id)}>Delete</button></div></Card>)}
+      <div className="flex items-center gap-2">{cfg.ro ? <>
+        <button className="btn-p !py-2 text-xs" onClick={() => setDetailItem({ ...r, type: col })}>View Details</button>
+        <select className="inp !w-auto !py-2 bg-panel text-white cursor-pointer text-xs" value={r.status} onChange={e => setStatus(r, e.target.value)}>{cfg.status!.map(s => <option key={s} value={s} className="bg-panel text-white capitalize">{s}</option>)}</select>
+      </> : <button className="btn-g !py-2" onClick={() => { api('/admin/media').then(setM).catch((x: any) => setError(x.message)); setEd(r) }}>Edit</button>}<button className="btn-g !py-2 text-red-400" onClick={() => del(r.id)}>Delete</button></div></Card>)}
       {loading && <p className="py-10 text-center text-white/40">Loading…</p>}
       {!loading && !rows.length && !error && <p className="py-10 text-center text-white/40">Nothing here yet.</p>}</div>
     {ed && <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-3 backdrop-blur sm:p-4" onClick={() => setEd(null)}><motion.div initial={{ scale: .95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} onClick={e => e.stopPropagation()} className="card max-h-[90vh] w-full max-w-lg space-y-4 overflow-auto bg-panel p-5 sm:p-6">
@@ -91,7 +380,8 @@ function Manager({ col }: { col: string }) {
           : f.t === 'area' ? <textarea rows={3} className="inp mt-1" value={ed[f.k] || ''} onChange={e => setEd({ ...ed, [f.k]: e.target.value })} />
           : <input type={f.t === 'num' ? 'number' : 'text'} className="inp mt-1" value={ed[f.k] ?? ''} onChange={e => setEd({ ...ed, [f.k]: f.t === 'num' ? +e.target.value : e.target.value })} />}
         {f.t === 'img' && <div className="mt-2 flex flex-wrap gap-2">{media_.map(m => <img key={m.id} src={media(m.url)} onClick={() => setEd({ ...ed, image: m.url })} className={`h-12 w-12 cursor-pointer rounded object-cover ${ed.image === m.url ? 'ring-2 ring-lime' : ''}`} />)}</div>}</label>)}
-      <div className="flex justify-end gap-3"><button className="btn-g" onClick={() => setEd(null)}>Cancel</button><button className="btn-p" onClick={save}>Save</button></div></motion.div></div>}</div>
+      <div className="flex justify-end gap-3"><button className="btn-g" onClick={() => setEd(null)}>Cancel</button><button className="btn-p" onClick={save}>Save</button></div></motion.div></div>}
+    {detailItem && <RequestDetailModal item={detailItem} onClose={() => { setDetailItem(null); load() }} onStatusChange={async (_c, _id, st) => { await setStatus(detailItem, st); setDetailItem((prev: any) => ({ ...prev, status: st, itemStatus: st })) }} onNavigate={onNavigate} />}</div>
 }
 
 function Content() {
@@ -177,11 +467,157 @@ function Media() {
     <div className="grid grid-cols-2 gap-4 md:grid-cols-4">{m.map(i => <Card key={i.id} className="!p-2"><img src={media(i.url)} className="h-32 w-full rounded-2xl object-cover" /><p className="mt-2 truncate text-xs">{i.title}</p><div className="flex justify-between text-xs"><button className="text-lime" onClick={() => navigator.clipboard.writeText(media(i.url))}>Copy URL</button><button className="text-red-400" onClick={async () => { await api('/admin/media/' + i.id, { method: 'DELETE' }); load() }}>Delete</button></div></Card>)}</div></div>
 }
 
-function Notes() {
-  const [n, setN] = useState<any[]>([]), load = () => api('/admin/notifications').then(setN); useEffect(() => { load() }, [])
-  return <div className="max-w-2xl space-y-3">{n.map(x => <Card key={x.id} className={`flex items-center justify-between ${x.read ? 'opacity-50' : ''}`}><div><b>{x.title}</b><p className="text-sm text-white/60">{x.message}</p><p className="text-xs text-white/30">{new Date(x.created).toLocaleString()}</p></div>
-    <div className="flex gap-2">{!x.read && <button className="btn-g !py-1" onClick={async () => { await api('/admin/notifications/' + x.id, { method: 'PUT', body: { read: true } }); load() }}>Mark read</button>}<button className="text-red-400" onClick={async () => { await api('/admin/notifications/' + x.id, { method: 'DELETE' }); load() }}>✕</button></div></Card>)}{!n.length && <p className="text-white/40">No notifications.</p>}</div>
+function Notes({ onNavigate, onUpdateCount }: { onNavigate?: (section: string) => void; onUpdateCount?: () => void }) {
+  const [n, setN] = useState<any[]>([]), [loading, setLoading] = useState(true), [activeItem, setActiveItem] = useState<any>(null), [filter, setFilter] = useState<'all' | 'unread' | 'quotes' | 'enquiries'>('all')
+  const load = () => {
+    setLoading(true)
+    api('/admin/notifications')
+      .then(res => {
+        setN(res)
+        if (onUpdateCount) onUpdateCount()
+      })
+      .finally(() => setLoading(false))
+  }
+  useEffect(() => { load() }, [])
+
+  const markRead = async (id: string, read: boolean) => {
+    await api('/admin/notifications/' + id, { method: 'PUT', body: { read } })
+    load()
+  }
+
+  const markAllRead = async () => {
+    const unread = n.filter(x => !x.read)
+    for (const item of unread) {
+      await api('/admin/notifications/' + item.id, { method: 'PUT', body: { read: true } })
+    }
+    load()
+  }
+
+  const del = async (id: string) => {
+    await api('/admin/notifications/' + id, { method: 'DELETE' })
+    load()
+  }
+
+  const openDetail = async (x: any) => {
+    if (!x.read) {
+      markRead(x.id, true)
+    }
+    setActiveItem(x)
+  }
+
+  const handleStatusChange = async (col: string, id: string, status: string) => {
+    await api(`/admin/${col}/${id}`, { method: 'PUT', body: { status } })
+    load()
+  }
+
+  const filtered = n.filter(x => {
+    if (filter === 'unread') return !x.read
+    if (filter === 'quotes') return x.type === 'quotes' || (x.title || '').toLowerCase().includes('quote')
+    if (filter === 'enquiries') return x.type === 'enquiries' || (x.title || '').toLowerCase().includes('enquiry')
+    return true
+  })
+
+  return (
+    <div className="max-w-3xl space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex rounded-full bg-white/5 p-1 text-xs">
+          {(['all', 'unread', 'quotes', 'enquiries'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setFilter(tab)}
+              className={`rounded-full px-3 py-1.5 capitalize transition ${filter === tab ? 'bg-lime font-semibold text-black' : 'text-white/60 hover:text-white'}`}
+            >
+              {tab === 'quotes' ? 'Project Requests' : tab === 'enquiries' ? 'Enquiries' : tab}
+              {tab === 'unread' && n.filter(x => !x.read).length > 0 && (
+                <span className="ml-1.5 rounded-full bg-black/30 px-1.5 text-[10px] text-lime">
+                  {n.filter(x => !x.read).length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        {n.some(x => !x.read) && (
+          <button onClick={markAllRead} className="btn-g !py-1.5 !px-3 text-xs">
+            ✓ Mark all as read
+          </button>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        {filtered.map(x => {
+          const isQuote = x.type === 'quotes' || (x.title || '').toLowerCase().includes('quote')
+          const isEnquiry = x.type === 'enquiries' || (x.title || '').toLowerCase().includes('enquiry')
+          return (
+            <Card
+              key={x.id}
+              className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-all border ${!x.read ? 'border-lime/40 bg-lime/[0.02]' : 'border-white/5 opacity-70 hover:opacity-100'}`}
+            >
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  {!x.read && <span className="h-2 w-2 rounded-full bg-lime shrink-0" title="Unread" />}
+                  <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${isQuote ? 'bg-lime/20 text-lime' : isEnquiry ? 'bg-cyan-500/20 text-cyan-300' : 'bg-white/10 text-white/70'}`}>
+                    {x.title}
+                  </span>
+                  {x.service && (
+                    <span className="rounded-md bg-white/5 px-2 py-0.5 text-[11px] text-white/80">
+                      {x.service}
+                    </span>
+                  )}
+                  <span className="text-[11px] text-white/30">
+                    {new Date(x.created).toLocaleString()}
+                  </span>
+                </div>
+                <p className="font-semibold text-sm text-white pt-1">{x.name || x.message}</p>
+                {x.email && x.name && <p className="text-xs text-white/50">{x.email}{x.phone ? ` · ☎ ${x.phone}` : ''}</p>}
+                {x.details && (
+                  <p className="line-clamp-2 text-xs text-white/70 italic pt-0.5">
+                    "{x.details}"
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                <button
+                  className="btn-p !py-1.5 !px-3 text-xs"
+                  onClick={() => openDetail(x)}
+                >
+                  View Details
+                </button>
+                <button
+                  className="btn-g !py-1.5 !px-2 text-xs"
+                  title={x.read ? 'Mark as unread' : 'Mark as read'}
+                  onClick={() => markRead(x.id, !x.read)}
+                >
+                  {x.read ? 'Mark unread' : 'Mark read'}
+                </button>
+                <button
+                  className="text-white/40 hover:text-red-400 p-1.5 text-xs transition"
+                  title="Delete notification"
+                  onClick={() => del(x.id)}
+                >
+                  ✕
+                </button>
+              </div>
+            </Card>
+          )
+        })}
+        {loading && <p className="py-8 text-center text-white/40">Loading notifications…</p>}
+        {!loading && !filtered.length && (
+          <p className="py-8 text-center text-white/40">No notifications in this view.</p>
+        )}
+      </div>
+
+      {activeItem && (
+        <RequestDetailModal
+          item={activeItem}
+          onClose={() => setActiveItem(null)}
+          onStatusChange={handleStatusChange}
+          onNavigate={onNavigate}
+        />
+      )}
+    </div>
+  )
 }
+
 
 function Profile({ me, onSaved }: { me: any; onSaved: (me: any) => void }) {
   const [email, setEmail] = useState(me.email), [name, setName] = useState(me.name), [pw, setPw] = useState(''), [m, setM] = useState('')
@@ -191,23 +627,77 @@ function Profile({ me, onSaved }: { me: any; onSaved: (me: any) => void }) {
 
 export default function Admin() {
   const savedSection = localStorage.getItem('tp_admin_section')
-  const [ok, setOk] = useState(!!tok()), [v, setV] = useState(() => NAV.some(([key]) => key === savedSection) ? savedSection || 'dashboard' : 'dashboard'), [me, setMe] = useState<any>(null), [open, setOpen] = useState(false), [unread, setU] = useState(0), [adminError, setAdminError] = useState('')
+  const [ok, setOk] = useState(!!tok())
+  const [v, setV] = useState(() => NAV.some(([key]) => key === savedSection) ? savedSection || 'dashboard' : 'dashboard')
+  const [me, setMe] = useState<any>(null)
+  const [unread, setU] = useState(0)
+  const [adminError, setAdminError] = useState('')
+
   useEffect(() => { localStorage.setItem('tp_admin_section', v) }, [v])
-  useEffect(() => { if (ok) { api('/auth/me').then(setMe).catch(() => setOk(false)); api('/admin/stats').then(s => { setU(s.unread); setAdminError('') }).catch((x: any) => setAdminError(x.message || 'Could not load admin status.')) } }, [ok, v])
-  if (!ok) return <Login ok={() => setOk(true)} />; if (!me) return <p className="p-8">{adminError || 'Loading admin…'}</p>
-  return <div className="flex min-h-screen bg-ink">
-    <aside className={`fixed inset-y-0 z-40 flex flex-col w-[min(18rem,85vw)] border-r border-white/10 bg-panel p-4 sm:p-5 transition-transform md:sticky md:top-0 md:h-screen md:max-h-screen md:w-64 md:translate-x-0 overscroll-contain ${open ? '' : '-translate-x-full'}`}>
-      <div className="shrink-0 mb-6 flex items-center justify-between">
-        <a href="/" className="font-display text-xl font-bold">AS<span className="text-lime">VORA</span> <span className="text-xs text-white/40">admin</span></a>
-        <a href="/" target="_blank" rel="noopener noreferrer" className="rounded-lg bg-white/5 px-2 py-1 text-xs text-white/50 hover:bg-white/10 hover:text-lime transition" title="Open public site">↗ Site</a>
-      </div>
-      <nav className="flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1 scrollbar-thin">
-        {NAV.map(([k, l]) => <button key={k} onClick={() => { setV(k); setOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }} className={`flex w-full items-center justify-between rounded-xl px-4 py-2.5 text-left text-sm transition ${v === k ? 'bg-brand/20 text-lime font-medium' : 'text-white/60 hover:bg-white/5'}`}>{l}{k === 'notifications' && unread > 0 && <b className="rounded-full bg-lime px-2 text-xs text-black">{unread}</b>}</button>)}
-        <button className="mt-6 w-full rounded-xl px-4 py-2.5 text-left text-sm text-red-400 hover:bg-white/5" onClick={() => { localStorage.removeItem('tp_token'); setOk(false) }}>⏻ Logout</button>
-      </nav>
-    </aside>
-    {open && <button aria-label="Close navigation menu" onClick={() => setOpen(false)} className="fixed inset-0 z-30 bg-black/60 md:hidden" />}
-    <main className="min-w-0 flex-1 p-4 sm:p-6 md:p-10"><div className="mb-6 flex items-center justify-between gap-3 sm:mb-8"><button aria-label="Open navigation menu" aria-expanded={open} onClick={() => setOpen(!open)} className="grid h-11 w-11 shrink-0 place-items-center text-2xl md:hidden">☰</button><h1 className="min-w-0 flex-1 truncate font-display text-2xl font-bold capitalize sm:text-3xl">{v === 'projects' ? 'Works' : v}</h1><span className="max-w-[8rem] truncate text-right text-xs text-white/50 sm:max-w-none sm:text-sm">{me.name}</span></div>
-      {adminError && <p role="alert" className="mb-4 text-sm text-red-300">{adminError}</p>}
-      {v === 'dashboard' ? <Dash /> : CFG[v] ? <Manager col={v} /> : v === 'about' || v === 'contact' ? <SectionEditor section={v} /> : v === 'content' ? <Content /> : v === 'quote-settings' ? <QuoteSettings /> : v === 'media' ? <Media /> : v === 'notifications' ? <Notes /> : <Profile me={me} onSaved={setMe} />}</main></div>
+
+  const refreshStats = () => {
+    api('/admin/stats').then(s => { setU(s.unread); setAdminError('') }).catch((x: any) => setAdminError(x.message || 'Could not load admin status.'))
+  }
+
+  useEffect(() => {
+    if (ok) {
+      api('/auth/me').then(setMe).catch(() => setOk(false))
+      refreshStats()
+    }
+  }, [ok, v])
+
+  if (!ok) return <Login ok={() => setOk(true)} />
+  if (!me) return <p className="p-8">{adminError || 'Loading admin…'}</p>
+
+  const renderContent = () => (
+    v === 'dashboard' ? <Dash />
+    : CFG[v] ? <Manager col={v} onNavigate={setV} />
+    : v === 'about' || v === 'contact' ? <SectionEditor section={v} />
+    : v === 'content' ? <Content />
+    : v === 'quote-settings' ? <QuoteSettings />
+    : v === 'media' ? <Media />
+    : v === 'notifications' ? <Notes onNavigate={setV} onUpdateCount={refreshStats} />
+    : <Profile me={me} onSaved={setMe} />
+  )
+
+  return (
+    <div className="flex min-h-screen bg-ink">
+      {/* Desktop Sticky Sidebar */}
+      <aside className="sticky top-0 h-screen max-h-screen w-64 border-r border-white/10 bg-panel p-4 sm:p-5 flex flex-col shrink-0">
+        <div className="shrink-0 mb-6 flex items-center justify-between">
+          <a href="/" className="font-display text-xl font-bold">AS<span className="text-lime">VORA</span> <span className="text-xs text-white/40">admin</span></a>
+          <a href="/" target="_blank" rel="noopener noreferrer" className="rounded-lg bg-white/5 px-2 py-1 text-xs text-white/50 hover:bg-white/10 hover:text-lime transition" title="Open public site">↗ Site</a>
+        </div>
+        <nav className="flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1 scrollbar-thin">
+          {NAV.map(([k, l]) => (
+            <button
+              key={k}
+              onClick={() => { setV(k); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+              className={`flex w-full items-center justify-between rounded-xl px-4 py-2.5 text-left text-sm transition ${v === k ? 'bg-brand/20 text-lime font-medium' : 'text-white/60 hover:bg-white/5'}`}
+            >
+              {l}
+              {k === 'notifications' && unread > 0 && (
+                <b className="rounded-full bg-lime px-2 text-xs text-black">{unread}</b>
+              )}
+            </button>
+          ))}
+          <button className="mt-6 w-full rounded-xl px-4 py-2.5 text-left text-sm text-red-400 hover:bg-white/5" onClick={() => { localStorage.removeItem('tp_token'); setOk(false) }}>⏻ Logout</button>
+        </nav>
+      </aside>
+
+      {/* Main Content Workspace */}
+      <main className="min-w-0 flex-1 p-6 md:p-10">
+        {/* Top Header Bar */}
+        <div className="mb-6 flex items-center justify-between gap-3 sm:mb-8 border-b border-white/5 pb-4">
+          <h1 className="min-w-0 truncate font-display text-2xl font-bold capitalize sm:text-3xl">
+            {v === 'projects' ? 'Works' : v}
+          </h1>
+          <span className="max-w-[12rem] truncate text-right text-xs text-white/50 sm:text-sm">{me.name}</span>
+        </div>
+
+        {adminError && <p role="alert" className="mb-4 text-sm text-red-300">{adminError}</p>}
+        {renderContent()}
+      </main>
+    </div>
+  )
 }

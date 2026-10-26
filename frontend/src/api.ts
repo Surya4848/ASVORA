@@ -123,6 +123,41 @@ function demoData(): DemoData {
       data.testimonials = testimonials
       changed = true
     }
+    data.notifications ||= []
+    data.notifications.forEach((notif: any) => {
+      if (!notif.details) {
+        const title = (notif.title || '').toLowerCase()
+        const msg = notif.message || ''
+        const emailMatch = msg.match(/\(([^)]+@[^)]+)\)/)
+        const email = emailMatch ? emailMatch[1] : ''
+        const nameMatch = msg.match(/^([^(]+)/)
+        const name = nameMatch ? nameMatch[1].trim() : ''
+        if (title.includes('quote')) {
+          const match = (data.quotes || []).find((q: any) => (email && q.email === email) || (name && q.name === name))
+          if (match) {
+            notif.type ||= 'quotes'
+            notif.targetId ||= match.id
+            notif.name ||= match.name
+            notif.email ||= match.email
+            notif.phone ||= match.phone
+            notif.service ||= match.service
+            notif.budget ||= match.budget
+            notif.details ||= match.message
+            changed = true
+          }
+        } else if (title.includes('enquiry')) {
+          const match = (data.enquiries || []).find((e: any) => (email && e.email === email) || (name && e.name === name))
+          if (match) {
+            notif.type ||= 'enquiries'
+            notif.targetId ||= match.id
+            notif.name ||= match.name
+            notif.email ||= match.email
+            notif.details ||= match.message
+            changed = true
+          }
+        }
+      }
+    })
     if (changed) saveDemoData(data)
     return data
   } catch (error) {
@@ -180,8 +215,9 @@ async function demoApi(path: string, method: string, body: any) {
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new Error('Rating must be between 1 and 5 stars.')
     if (quote.length > 3000) throw new Error('Review must be 3000 characters or fewer.')
     const created = new Date().toISOString()
+    const reviewId = crypto.randomUUID()
     data.testimonials.push({
-      id: crypto.randomUUID(),
+      id: reviewId,
       name,
       role: 'ASVORA visitor',
       quote: quote || `Rated ${rating} out of 5 stars.`,
@@ -193,6 +229,11 @@ async function demoApi(path: string, method: string, body: any) {
       id: crypto.randomUUID(),
       title: 'New review to approve',
       message: `${name} · ${rating}/5 stars`,
+      type: 'testimonials',
+      targetId: reviewId,
+      name,
+      rating,
+      details: quote || `Rated ${rating} out of 5 stars.`,
       read: false,
       created,
     })
@@ -262,8 +303,19 @@ async function demoApi(path: string, method: string, body: any) {
     const entry = { ...body, id: crypto.randomUUID(), status: 'new', created: new Date().toISOString() }
     data[collection].push(entry)
     data.notifications.push({
-      id: crypto.randomUUID(), title: `New ${collection === 'quotes' ? 'quote request' : 'enquiry'}`,
-      message: `${entry.name} (${entry.email})`, read: false, created: entry.created,
+      id: crypto.randomUUID(),
+      title: `New ${collection === 'quotes' ? 'quote request' : 'enquiry'}`,
+      message: `${entry.name} (${entry.email})`,
+      type: collection,
+      targetId: entry.id,
+      name: entry.name,
+      email: entry.email,
+      phone: entry.phone || '',
+      service: entry.service || '',
+      budget: entry.budget || '',
+      details: entry.message || '',
+      read: false,
+      created: entry.created,
     })
     saveDemoData(data)
     return { ok: true }
