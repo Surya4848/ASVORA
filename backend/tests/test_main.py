@@ -23,7 +23,8 @@ class PortfolioPersistenceTests(unittest.TestCase):
         self.analytics_file = main.ANALYTICS_FILE
         self.mongo_db = main.mongo_db
         self.test_database_name = f"asvora_test_{main.uuid.uuid4().hex}"
-        main.mongo_db = main.mongo_client[self.test_database_name]
+        if main.is_mongo_available():
+            main.mongo_db = main.mongo_client[self.test_database_name]
         self.store = dict(main.store)
         main.DATA_FILE = os.path.join(self.temp_dir.name, "data.json")
         main.ANALYTICS_FILE = os.path.join(self.temp_dir.name, "analytics.sqlite3")
@@ -33,7 +34,11 @@ class PortfolioPersistenceTests(unittest.TestCase):
     def tearDown(self):
         main.DATA_FILE = self.data_file
         main.ANALYTICS_FILE = self.analytics_file
-        main.mongo_client.drop_database(main.mongo_db.name)
+        if main.is_mongo_available():
+            try:
+                main.mongo_client.drop_database(main.mongo_db.name)
+            except Exception:
+                pass
         main.mongo_db = self.mongo_db
         main.store.clear()
         main.store.update(self.store)
@@ -140,6 +145,8 @@ class PortfolioPersistenceTests(unittest.TestCase):
         self.assertEqual(error.exception.status_code, 422)
 
     def test_persists_and_reloads_portfolio_data_from_mongodb(self):
+        if not main.is_mongo_available():
+            self.skipTest("MongoDB not available")
         asyncio.run(main.seed())
         main.insert("projects", {"_id": "saved-project", "title": "Saved project"})
         main.save_store()

@@ -11,7 +11,7 @@ const CFG: Record<string, { title: string; f: F[]; status?: string[]; ro?: boole
   enquiries: { title: 'Enquiries', ro: true, status: ['new', 'in-progress', 'closed'], f: [] },
   quotes: { title: 'Quote requests', ro: true, status: ['new', 'in-progress', 'quoted', 'closed'], f: [] },
 }
-const NAV = [['dashboard', '▦ Dashboard'], ['enquiries', '✉ Enquiries'], ['quotes', '＄ Quotes'], ['services', '◆ Services'], ['projects', '▣ Works'], ['about', '◉ About'], ['contact', '✉ Contact'], ['testimonials', '★ Testimonials'], ['content', '✎ Content'], ['quote-settings', '＄ Quote Settings'], ['media', '▤ Media'], ['notifications', '🔔 Notifications'], ['profile', '⚙ Profile']]
+const NAV = [['dashboard', '▦ Dashboard'], ['enquiries', '✉ Enquiries'], ['quotes', '＄ Quotes'], ['services', '◆ Services'], ['projects', '▣ Works'], ['about', '◉ About'], ['contact', '✉ Contact'], ['testimonials', '★ Testimonials'], ['content', '✎ Content'], ['media', '▤ Media'], ['notifications', '🔔 Notifications'], ['profile', '⚙ Profile']]
 const SECTION_FIELDS: Record<string, F[]> = {
   about: [
     { k: 'aboutTitle', l: 'About heading' },
@@ -125,6 +125,11 @@ function RequestDetailModal({
   const isEnquiry = data.type === 'enquiries' || (data.title || '').toLowerCase().includes('enquiry')
   const isReview = data.type === 'testimonials' || (data.title || '').toLowerCase().includes('review')
 
+  const replySubject = `ASVORA - Regarding your ${isQuote ? 'project request' : 'enquiry'}`
+  const replyBody = `Hi ${data.name || 'there'},\n\nThank you for reaching out to ASVORA regarding your ${isQuote ? 'project request' : 'enquiry'}${data.service ? ` for ${data.service}` : ''}.\n\n`
+  const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(data.email || '')}&su=${encodeURIComponent(replySubject)}&body=${encodeURIComponent(replyBody)}`
+  const mailtoUrl = `mailto:${data.email}?subject=${encodeURIComponent(replySubject)}&body=${encodeURIComponent(replyBody)}`
+
   const titleText = isQuote
     ? 'Project Request Details'
     : isEnquiry
@@ -159,7 +164,7 @@ function RequestDetailModal({
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         onClick={e => e.stopPropagation()}
-        className="card max-h-[92vh] w-full max-w-xl space-y-5 overflow-y-auto bg-panel p-5 sm:p-7 shadow-2xl border border-white/10"
+        className="card max-h-[92vh] w-full max-w-2xl sm:max-w-3xl space-y-5 overflow-y-auto bg-panel p-5 sm:p-8 shadow-2xl border border-white/10"
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
@@ -221,10 +226,20 @@ function RequestDetailModal({
                     {copied ? '✓ Copied' : 'Copy Email'}
                   </button>
                   <a
-                    href={`mailto:${data.email}?subject=${encodeURIComponent(`ASVORA - Regarding your ${isQuote ? 'project request' : 'enquiry'}`)}`}
-                    className="rounded-lg bg-lime/20 px-2.5 py-1.5 text-xs font-semibold text-lime hover:bg-lime/30 transition flex items-center gap-1"
+                    href={gmailUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg bg-red-500/20 text-red-300 hover:bg-red-500/30 px-2.5 py-1.5 text-xs font-semibold transition flex items-center gap-1"
+                    title="Open Gmail directly in browser to reply"
                   >
-                    ✉ Reply
+                    ✉ Gmail
+                  </a>
+                  <a
+                    href={mailtoUrl}
+                    className="rounded-lg bg-white/10 px-2 py-1.5 text-xs text-white/70 hover:bg-white/20 transition"
+                    title="Open default desktop mail app"
+                  >
+                    Mail App
                   </a>
                 </>
               )}
@@ -274,34 +289,15 @@ function RequestDetailModal({
               {copiedMsg ? '✓ Copied' : 'Copy Message'}
             </button>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-ink p-4 text-sm text-white/90 leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto selection:bg-lime selection:text-black">
+          <div className="rounded-2xl border border-white/15 bg-ink/90 p-5 sm:p-6 text-sm sm:text-base text-white/95 leading-relaxed whitespace-pre-wrap min-h-[220px] sm:min-h-[280px] max-h-[500px] overflow-y-auto selection:bg-lime selection:text-black shadow-inner ring-1 ring-white/5">
             {messageText}
           </div>
         </div>
 
-        {/* Status manager (for quotes and enquiries) */}
-        {targetCol && targetId && onStatusChange && (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs text-white/40">Current Status</p>
-              <div className="flex items-center gap-2 mt-1">
-                <span className={`inline-block h-2 w-2 rounded-full ${currentStatus === 'new' ? 'bg-amber-400 animate-pulse' : currentStatus === 'in-progress' ? 'bg-cyan-400' : currentStatus === 'quoted' ? 'bg-lime' : 'bg-white/40'}`} />
-                <span className="font-semibold text-sm capitalize">{currentStatus}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-white/50">Change:</span>
-              <select
-                disabled={loading}
-                className="inp !w-auto !py-1.5 !px-3 text-xs bg-panel text-white cursor-pointer"
-                value={currentStatus}
-                onChange={e => updateStatus(e.target.value)}
-              >
-                {(targetCol === 'quotes' ? ['new', 'in-progress', 'quoted', 'closed'] : ['new', 'in-progress', 'closed']).map(s => (
-                  <option key={s} value={s} className="bg-panel text-white capitalize">{s}</option>
-                ))}
-              </select>
-            </div>
+        {/* Reply suggestions / note */}
+        {data.email && (
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs text-white/70 flex items-center justify-between gap-2">
+            <span>💡 <strong>How to reply:</strong> Click <strong>Reply via Gmail</strong> to compose immediately in your browser, or <strong>Copy Email</strong> to paste into your preferred client.</span>
           </div>
         )}
 
@@ -316,17 +312,37 @@ function RequestDetailModal({
               Open in {targetCol === 'quotes' ? 'Quotes' : 'Enquiries'} table →
             </button>
           ) : <div />}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button type="button" className="btn-g !py-2 !px-4 text-xs" onClick={onClose}>
               Close
             </button>
             {data.email && (
-              <a
-                href={`mailto:${data.email}?subject=${encodeURIComponent(`ASVORA - Regarding your ${isQuote ? 'project request' : 'enquiry'}`)}`}
-                className="btn-p !py-2 !px-4 text-xs"
-              >
-                Reply to Client
-              </a>
+              <>
+                <button
+                  type="button"
+                  onClick={copyEmail}
+                  className="btn-g !py-2 !px-3 text-xs"
+                  title="Copy email to clipboard"
+                >
+                  {copied ? '✓ Copied' : 'Copy Email'}
+                </button>
+                <a
+                  href={mailtoUrl}
+                  className="btn-g !py-2 !px-3 text-xs text-white/70 hover:text-white"
+                  title="Open desktop mail app"
+                >
+                  Mail App
+                </a>
+                <a
+                  href={gmailUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-p !py-2 !px-4 text-xs flex items-center gap-1.5"
+                  title="Open and reply via Gmail web compose"
+                >
+                  <span>✉</span> Reply via Gmail
+                </a>
+              </>
             )}
           </div>
         </div>
