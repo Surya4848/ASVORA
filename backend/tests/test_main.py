@@ -21,6 +21,9 @@ class PortfolioPersistenceTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.data_file = main.DATA_FILE
         self.analytics_file = main.ANALYTICS_FILE
+        self.mongo_db = main.mongo_db
+        self.test_database_name = f"asvora_test_{main.uuid.uuid4().hex}"
+        main.mongo_db = main.mongo_client[self.test_database_name]
         self.store = dict(main.store)
         main.DATA_FILE = os.path.join(self.temp_dir.name, "data.json")
         main.ANALYTICS_FILE = os.path.join(self.temp_dir.name, "analytics.sqlite3")
@@ -30,6 +33,8 @@ class PortfolioPersistenceTests(unittest.TestCase):
     def tearDown(self):
         main.DATA_FILE = self.data_file
         main.ANALYTICS_FILE = self.analytics_file
+        main.mongo_client.drop_database(main.mongo_db.name)
+        main.mongo_db = self.mongo_db
         main.store.clear()
         main.store.update(self.store)
         self.temp_dir.cleanup()
@@ -100,7 +105,7 @@ class PortfolioPersistenceTests(unittest.TestCase):
         self.assertEqual([row["title"] for row in main.store["projects"]], ["My real project"])
         self.assertEqual([row["name"] for row in main.store["testimonials"]], ["Real client"])
         with open(main.DATA_FILE, encoding="utf-8") as data_file:
-            self.assertNotIn("visits", json.load(data_file))
+            self.assertEqual(len(json.load(data_file)["visits"]), 2)
         self.assertEqual(asyncio.run(main.stats())["visits"], 2)
 
         with patch.dict(os.environ, {"SMTP_HOST": "smtp.example.com"}):
@@ -133,6 +138,17 @@ class PortfolioPersistenceTests(unittest.TestCase):
         with self.assertRaises(main.HTTPException) as error:
             asyncio.run(main.review(main.ReviewSubmission(name="Visitor", rating=6)))
         self.assertEqual(error.exception.status_code, 422)
+
+    def test_persists_and_reloads_portfolio_data_from_mongodb(self):
+        asyncio.run(main.seed())
+        main.insert("projects", {"_id": "saved-project", "title": "Saved project"})
+        main.save_store()
+        for collection in main.store:
+            main.store[collection] = []
+
+        self.assertTrue(main.load_store())
+        self.assertEqual(main.find_one("projects", _id="saved-project")["title"], "Saved project")
+        self.assertEqual(main.mongo_db["projects"].count_documents({"_id": "saved-project"}), 1)
 
     def test_authentication_and_works_flow(self):
         asyncio.run(main.seed())

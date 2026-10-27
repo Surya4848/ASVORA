@@ -5,3 +5,4 @@ passlib
 python-multipart
 pydantic[email]
 python-dotenv
+pymongo

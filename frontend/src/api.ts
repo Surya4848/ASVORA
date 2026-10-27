@@ -9,6 +9,7 @@ type DemoData = { content: Record<string, string>; [key: string]: any }
 export const browserOnlyDemo = DEMO_MODE
 const DEFAULT_CONTENT = {
   brand: 'ASVORA',
+  logo: '',
   heroTitle: 'Digital solutions for your business',
   heroSub: 'AS Digital Studio delivers professional web development, creative video editing, and engaging content creation. We help businesses build their online presence with innovative digital solutions and premium quality.',
   aboutTitle: 'Creative digital work. Made for your business.',

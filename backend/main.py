@@ -6,7 +6,6 @@ import os
 import re
 import smtplib
 import sqlite3
-import tempfile
 import uuid
 from collections import Counter
 from contextlib import asynccontextmanager, contextmanager
@@ -18,6 +17,8 @@ from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from jose import JWTError, jwt
+from pymongo import MongoClient, ReplaceOne
+from pymongo.errors import PyMongoError
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 
@@ -27,6 +28,12 @@ E = os.environ.get
 DATA_FILE = os.path.abspath(os.path.join(BASE_DIR, E("DATA_FILE", "data.json")))
 ANALYTICS_FILE = os.path.abspath(os.path.join(BASE_DIR, E("ANALYTICS_FILE", "analytics.sqlite3")))
 UPLOADS_DIR = os.path.abspath(os.path.join(BASE_DIR, E("UPLOADS_DIR", "uploads")))
+MONGODB_URI = E("MONGODB_URI", "mongodb://localhost:27017/").strip()
+MONGO_DB_NAME = E("MONGO_DB_NAME", "asvora").strip()
+if not MONGO_DB_NAME:
+    raise RuntimeError("MONGO_DB_NAME must not be empty.")
+mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
+mongo_db = mongo_client[MONGO_DB_NAME]
 SECRET = E("JWT_SECRET", "").strip()
 logger = logging.getLogger(__name__)
 pwd = CryptContext(schemes=["pbkdf2_sha256"])
@@ -69,16 +76,32 @@ def insert(col: str, row: dict):
 
 
 def load_store():
-    if not os.path.exists(DATA_FILE):
-        return False
-    with open(DATA_FILE, encoding="utf-8") as data_file:
-        saved = json.load(data_file)
+    try:
+        mongo_client.admin.command("ping")
+    except PyMongoError as error:
+        raise RuntimeError("Could not connect to the configured MongoDB server.") from error
+
+    metadata = mongo_db["_metadata"]
+    initialized = metadata.find_one({"_id": "initialized"})
+    has_mongo_data = any(
+        mongo_db[col].find_one({}, {"_id": 1}) is not None for col in store
+    )
+    if not initialized and not has_mongo_data:
+        if not os.path.exists(DATA_FILE):
+            return False
+        with open(DATA_FILE, encoding="utf-8") as data_file:
+            saved = json.load(data_file)
+    else:
+        saved = {
+            col: list(mongo_db[col].find())
+            for col in store
+        }
     if not isinstance(saved, dict):
-        raise RuntimeError(f"Persistent data in {DATA_FILE} must be a JSON object.")
+        raise RuntimeError("Persistent data must be a JSON object.")
     for col in store:
         rows = saved.get(col, [])
         if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
-            raise RuntimeError(f"Persistent data collection {col!r} in {DATA_FILE} is invalid.")
+            raise RuntimeError(f"Persistent data collection {col!r} is invalid.")
         for row in rows:
             if isinstance(row.get("created"), str):
                 row["created"] = dt.datetime.fromisoformat(row["created"])
@@ -88,28 +111,31 @@ def load_store():
         for key, value in CONTENT.items():
             if key not in content:
                 content[key] = value
+    if initialized or has_mongo_data:
+        metadata.update_one(
+            {"_id": "initialized"},
+            {"$set": {"database": MONGO_DB_NAME}},
+            upsert=True,
+        )
     return True
 
 
-def encode_json(value):
-    if isinstance(value, dt.datetime):
-        return value.isoformat()
-    raise TypeError(f"Cannot serialize {type(value).__name__} to persistent data.")
-
-
 def save_store():
-    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=os.path.dirname(DATA_FILE), delete=False
-        ) as data_file:
-            temp_path = data_file.name
-            json.dump(store, data_file, default=encode_json)
-        os.replace(temp_path, DATA_FILE)
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
+    for col, rows in store.items():
+        collection = mongo_db[col]
+        if rows:
+            collection.bulk_write([
+                ReplaceOne({"_id": row["_id"]}, row, upsert=True)
+                for row in rows
+            ])
+            collection.delete_many({"_id": {"$nin": [row["_id"] for row in rows]}})
+        else:
+            collection.delete_many({})
+    mongo_db["_metadata"].update_one(
+        {"_id": "initialized"},
+        {"$set": {"database": MONGO_DB_NAME}},
+        upsert=True,
+    )
 
 
 def ser(row: dict):
@@ -138,6 +164,7 @@ def check(col: str):
 
 CONTENT = {
     "brand": "ASVORA",
+    "logo": "",
     "heroTitle": "Digital solutions for your business",
     "heroSub": "AS Digital Studio delivers professional web development, creative video editing, and engaging content creation. We help businesses build their online presence with innovative digital solutions and premium quality.",
     "aboutTitle": "Creative digital work. Made for your business.",

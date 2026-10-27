@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams, useNavigate } from 'react-router-dom'
 import { motion, useScroll, useSpring, useTransform, AnimatePresence } from 'framer-motion'
 import { api, media } from './api'
+import BrandLogo from './BrandLogo'
 
 const rv = (i = 0) => ({
   initial: { opacity: 0, y: 35 },
@@ -156,7 +157,7 @@ function Nav({ c, hasProjects, hasTestimonials, currentPath, onStartProject }: a
       <motion.header initial={{ y: -80 }} animate={{ y: 0 }} className="fixed inset-x-0 top-0 z-50 flex justify-center px-3 pt-3 sm:px-4 sm:pt-4">
         <nav className={`flex w-full max-w-6xl items-center justify-between rounded-full px-4 py-3 sm:px-5 transition-all duration-500 ${s ? 'border border-white/10 bg-ink/80 backdrop-blur-xl shadow-xl shadow-black/30' : ''}`}>
           <Link to="/" onClick={() => setO(false)} className="font-display text-xl font-bold tracking-tight">
-            {c.brand || 'ASVORA'}
+            <BrandLogo logo={media(c.logo)} label={c.brand || 'ASVORA'}>{c.brand || 'ASVORA'}</BrandLogo>
           </Link>
 
           {/* Desktop Navigation */}
@@ -1546,7 +1547,7 @@ export default function Public() {
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-5 text-center sm:flex-row sm:text-left">
           <div>
             <Link to="/" className="font-display text-2xl font-bold">
-              {c.brand || 'ASVORA'}
+              <BrandLogo logo={media(c.logo)} label={c.brand || 'ASVORA'} imageClassName="h-10 w-10">{c.brand || 'ASVORA'}</BrandLogo>
             </Link>
             <p className="mt-2 text-sm text-white/50">Digital solutions for your business.</p>
           </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { api, browserOnlyDemo, tok, media } from './api'
+import BrandLogo from './BrandLogo'
 
 type F = { k: string; l: string; t?: 'area' | 'bool' | 'num' | 'img' }
 const CFG: Record<string, { title: string; f: F[]; status?: string[]; ro?: boolean }> = {
@@ -25,13 +26,13 @@ const SECTION_FIELDS: Record<string, F[]> = {
 }
 const Card = ({ children, className = '' }: any) => <div className={`card p-4 sm:p-5 ${className}`}>{children}</div>
 
-function Login({ ok }: any) {
+function Login({ ok, logo, error }: { ok: () => void; logo: string; error: string }) {
   const [e, setE] = useState(''), [p, setP] = useState(''), [err, setErr] = useState('')
   return <div className="grid min-h-screen place-items-center px-4"><motion.form initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} onSubmit={async x => { x.preventDefault(); try { const r = await api('/auth/login', { method: 'POST', body: { email: e, password: p } }); localStorage.setItem('tp_token', r.token); ok() } catch (z: any) { setErr(z.message) } }} className="card w-full max-w-sm space-y-4 p-6 sm:p-8">
-    <h1 className="font-display text-2xl font-bold">ASVORA Admin</h1><p className="text-sm text-white/50">Sign in to manage the website.</p>
+    <h1 className="font-display text-2xl font-bold"><BrandLogo logo={media(logo)}>ASVORA Admin</BrandLogo></h1><p className="text-sm text-white/50">Sign in to manage the website.</p>
     {browserOnlyDemo && <p className="rounded-xl border border-yellow-400/20 bg-yellow-400/5 p-3 text-xs text-yellow-200">Browser-only demo: this is not secure authentication. Changes stay in this browser and do not update the live website. Open the public site with this same address and port to share demo changes.</p>}
     <input className="inp" type="email" placeholder="Email" value={e} onChange={x => setE(x.target.value)} required /><input className="inp" type="password" placeholder="Password" value={p} onChange={x => setP(x.target.value)} required />
-    {err && <p className="text-sm text-red-400">{err}</p>}<button className="btn-p w-full">Sign in</button></motion.form></div>
+    {(err || error) && <p role="alert" className="text-sm text-red-400">{err || error}</p>}<button className="btn-p w-full">Sign in</button></motion.form></div>
 }
 
 function Dash() {
@@ -619,10 +620,55 @@ function Notes({ onNavigate, onUpdateCount }: { onNavigate?: (section: string) =
 }
 
 
-function Profile({ me, onSaved }: { me: any; onSaved: (me: any) => void }) {
+function Profile({ me, logo, onSaved, onLogoSaved }: { me: any; logo: string; onSaved: (me: any) => void; onLogoSaved: (logo: string) => void }) {
   const [email, setEmail] = useState(me.email), [name, setName] = useState(me.name), [pw, setPw] = useState(''), [m, setM] = useState('')
-  return <Card className="max-w-md space-y-4">{browserOnlyDemo && <p className="text-sm text-yellow-200">Browser-only demo mode. Password changes require the backend.</p>}<label className="block text-sm text-white/60">Admin email<input className="inp mt-1" type="email" value={email} onChange={e => setEmail(e.target.value)} required /></label><label className="block text-sm text-white/60">Name<input className="inp mt-1" value={name} onChange={e => setName(e.target.value)} /></label>{!browserOnlyDemo && <label className="block text-sm text-white/60">New password<input className="inp mt-1" type="password" placeholder="At least 8 characters (optional)" value={pw} onChange={e => setPw(e.target.value)} /></label>}
-    <button className="btn-p" onClick={async () => { try { const r = await api('/auth/profile', { method: 'PUT', body: { email, name, password: pw || undefined } }); if (r.token) localStorage.setItem('tp_token', r.token); onSaved({ ...me, email, name }); setM('Saved'); setPw('') } catch (x: any) { setM(x.message) } }}>Save</button> <span className="text-sm text-lime">{m}</span></Card>
+  const [logoMessage, setLogoMessage] = useState('')
+  const [logoError, setLogoError] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const saveLogo = async (nextLogo: string) => {
+    await api('/admin/content', { method: 'PUT', body: { logo: nextLogo } })
+    onLogoSaved(nextLogo)
+  }
+  const uploadLogo = async (file?: File) => {
+    if (!file) return
+    setUploading(true)
+    setLogoError('')
+    setLogoMessage('')
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const uploaded = await api('/admin/media/upload', { method: 'POST', body: form })
+      await saveLogo(uploaded.url)
+      setLogoMessage('Logo saved and displayed across the site.')
+    } catch (error: any) {
+      setLogoError(error.message || 'Could not upload the logo.')
+    } finally {
+      setUploading(false)
+    }
+  }
+  const removeLogo = async () => {
+    setLogoError('')
+    setLogoMessage('')
+    try {
+      await saveLogo('')
+      setLogoMessage('Logo removed.')
+    } catch (error: any) {
+      setLogoError(error.message || 'Could not remove the logo.')
+    }
+  }
+  return <div className="space-y-4">
+    <Card className="max-w-md space-y-4">{browserOnlyDemo && <p className="text-sm text-yellow-200">Browser-only demo mode. Password changes require the backend.</p>}<label className="block text-sm text-white/60">Admin email<input className="inp mt-1" type="email" value={email} onChange={e => setEmail(e.target.value)} required /></label><label className="block text-sm text-white/60">Name<input className="inp mt-1" value={name} onChange={e => setName(e.target.value)} /></label>{!browserOnlyDemo && <label className="block text-sm text-white/60">New password<input className="inp mt-1" type="password" placeholder="At least 8 characters (optional)" value={pw} onChange={e => setPw(e.target.value)} /></label>}
+      <button className="btn-p" onClick={async () => { try { const r = await api('/auth/profile', { method: 'PUT', body: { email, name, password: pw || undefined } }); if (r.token) localStorage.setItem('tp_token', r.token); onSaved({ ...me, email, name }); setM('Saved'); setPw('') } catch (x: any) { setM(x.message) } }}>Save</button> <span className="text-sm text-lime">{m}</span>
+    </Card>
+    <Card className="max-w-md space-y-4">
+      <div><h2 className="font-display text-lg font-semibold">Site logo</h2><p className="mt-1 text-sm text-white/50">Upload a PNG, JPG, WEBP, SVG, or GIF up to 5 MB. It appears beside ASVORA across the site.</p></div>
+      {logo && <div className="flex items-center gap-4 rounded-xl border border-white/10 bg-white/5 p-3"><img src={media(logo)} alt="Current site logo" className="h-16 w-16 rounded-lg bg-white/5 p-1 object-contain" /><span className="text-sm text-white/60">Current logo</span></div>}
+      <label className={`btn-p cursor-pointer ${uploading ? 'pointer-events-none opacity-50' : ''}`}>{uploading ? 'Uploading…' : logo ? 'Replace logo' : 'Upload logo'}<input type="file" hidden accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" disabled={uploading} onChange={e => { void uploadLogo(e.currentTarget.files?.[0]); e.currentTarget.value = '' }} /></label>
+      {logo && <button className="btn-g ml-2" onClick={() => { void removeLogo() }}>Remove logo</button>}
+      {logoError && <p role="alert" className="text-sm text-red-300">{logoError}</p>}
+      {logoMessage && <p role="status" className="text-sm text-lime">{logoMessage}</p>}
+    </Card>
+  </div>
 }
 
 export default function Admin() {
@@ -630,6 +676,7 @@ export default function Admin() {
   const [ok, setOk] = useState(!!tok())
   const [v, setV] = useState(() => NAV.some(([key]) => key === savedSection) ? savedSection || 'dashboard' : 'dashboard')
   const [me, setMe] = useState<any>(null)
+  const [logo, setLogo] = useState('')
   const [unread, setU] = useState(0)
   const [adminError, setAdminError] = useState('')
 
@@ -646,7 +693,15 @@ export default function Admin() {
     }
   }, [ok, v])
 
-  if (!ok) return <Login ok={() => setOk(true)} />
+  useEffect(() => {
+    if (ok) api('/admin/content').then(content => setLogo(content.logo || '')).catch((x: any) => setAdminError(x.message || 'Could not load the site logo.'))
+  }, [ok])
+
+  useEffect(() => {
+    if (!ok) api('/public').then(data => setLogo(data.content.logo || '')).catch((x: any) => setAdminError(x.message || 'Could not load the site logo.'))
+  }, [ok])
+
+  if (!ok) return <Login ok={() => setOk(true)} logo={logo} error={adminError} />
   if (!me) return <p className="p-8">{adminError || 'Loading admin…'}</p>
 
   const renderContent = () => (
@@ -657,7 +712,7 @@ export default function Admin() {
     : v === 'quote-settings' ? <QuoteSettings />
     : v === 'media' ? <Media />
     : v === 'notifications' ? <Notes onNavigate={setV} onUpdateCount={refreshStats} />
-    : <Profile me={me} onSaved={setMe} />
+    : <Profile me={me} logo={logo} onSaved={setMe} onLogoSaved={setLogo} />
   )
 
   return (
@@ -665,7 +720,7 @@ export default function Admin() {
       {/* Desktop Sticky Sidebar */}
       <aside className="sticky top-0 h-screen max-h-screen w-64 border-r border-white/10 bg-panel p-4 sm:p-5 flex flex-col shrink-0">
         <div className="shrink-0 mb-6 flex items-center justify-between">
-          <a href="/" className="font-display text-xl font-bold">AS<span className="text-lime">VORA</span> <span className="text-xs text-white/40">admin</span></a>
+          <a href="/" className="font-display text-xl font-bold"><BrandLogo logo={media(logo)} label="ASVORA" imageClassName="h-8 w-8">AS<span className="text-lime">VORA</span> <span className="text-xs text-white/40">admin</span></BrandLogo></a>
           <a href="/" target="_blank" rel="noopener noreferrer" className="rounded-lg bg-white/5 px-2 py-1 text-xs text-white/50 hover:bg-white/10 hover:text-lime transition" title="Open public site">↗ Site</a>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1 scrollbar-thin">
