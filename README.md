@@ -12,7 +12,7 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Edit `backend/.env` before starting the server. Set a unique `JWT_SECRET` (at least 32 random characters), `ADMIN_EMAIL`, and a strong `ADMIN_PASSWORD`. Generate a secret with `python -c "import secrets; print(secrets.token_urlsafe(48))"`. The server will refuse to start if the signing secret is missing or too short, or if the admin email and password are missing on a fresh install. Keep `.env` private; it is excluded from Git.
+Edit `backend/.env` before starting the server. Set a unique `JWT_SECRET` (at least 32 random characters), `ADMIN_EMAIL`, and a strong `ADMIN_PASSWORD`; the example file intentionally contains no credentials. Generate a secret with `python -c "import secrets; print(secrets.token_urlsafe(48))"`. The server will refuse to start if the signing secret is missing or too short, or if the admin email and password are missing on a fresh install. Keep `.env` private; it is excluded from Git. Admin logins are temporarily throttled after five failed attempts per IP address or account within 15 minutes.
 
 The backend uses MongoDB at `mongodb://localhost:27017/` by default and stores portfolio data in the `asvora` database. Configure `MONGODB_URI` and `MONGO_DB_NAME` in `backend/.env` to use a different MongoDB server or database. Ensure MongoDB is running before starting the backend. On first startup, existing records in `backend/data.json` are migrated into MongoDB; the JSON file is retained as a backup. Analytics continue to use SQLite in `backend/analytics.sqlite3`.
 

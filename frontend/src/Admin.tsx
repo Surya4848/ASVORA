@@ -352,7 +352,7 @@ function RequestDetailModal({
 }
 
 function Manager({ col, onNavigate }: { col: string; onNavigate?: (col: string) => void }) {
-  const cfg = CFG[col], [rows, setRows] = useState<any[]>([]), [q, setQ] = useState(''), [sf, setSf] = useState(''), [ed, setEd] = useState<any>(null), [detailItem, setDetailItem] = useState<any>(null), [media_, setM] = useState<any[]>([]), [error, setError] = useState(''), [loading, setLoading] = useState(true)
+  const cfg = CFG[col], [rows, setRows] = useState<any[]>([]), [q, setQ] = useState(''), [sf, setSf] = useState(''), [ed, setEd] = useState<any>(null), [detailItem, setDetailItem] = useState<any>(null), [media_, setM] = useState<any[]>([]), [error, setError] = useState(''), [loading, setLoading] = useState(true), [uploadingImage, setUploadingImage] = useState(false)
   const load = async () => {
     setLoading(true)
     try { setRows(await api(`/admin/${col}?q=${encodeURIComponent(q)}&status=${sf}`)); setError('') }
@@ -392,12 +392,38 @@ function Manager({ col, onNavigate }: { col: string; onNavigate?: (col: string) 
       {!loading && !rows.length && !error && <p className="py-10 text-center text-white/40">Nothing here yet.</p>}</div>
     {ed && <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-3 backdrop-blur sm:p-4" onClick={() => setEd(null)}><motion.div initial={{ scale: .95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} onClick={e => e.stopPropagation()} className="card max-h-[90vh] w-full max-w-lg space-y-4 overflow-auto bg-panel p-5 sm:p-6">
       <h3 className="font-display text-xl">{ed.id ? 'Edit' : 'New'} {cfg.title.toLowerCase()}</h3>
-      {cfg.f.map(f => <label key={f.k} className="block text-sm"><span className="text-white/60">{f.l}</span>
+      {cfg.f.map(f => <div key={f.k} className="block text-sm"><span className="text-white/60">{f.l}</span>
         {f.t === 'bool' ? <input type="checkbox" className="ml-3" checked={ed[f.k] !== false} onChange={e => setEd({ ...ed, [f.k]: e.target.checked })} />
           : f.t === 'area' ? <textarea rows={3} className="inp mt-1" value={ed[f.k] || ''} onChange={e => setEd({ ...ed, [f.k]: e.target.value })} />
+          : f.t === 'img' ? <div className="mt-1 space-y-3">
+            <input type="text" className="inp" value={ed[f.k] ?? ''} onChange={e => setEd({ ...ed, [f.k]: e.target.value })} />
+            <label className={`btn-g inline-flex cursor-pointer items-center ${uploadingImage ? 'pointer-events-none opacity-50' : ''}`}>
+              {uploadingImage ? 'Uploading…' : 'Upload image'}
+              <input type="file" hidden accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" disabled={uploadingImage} onChange={async e => {
+                const file = e.currentTarget.files?.[0]
+                e.currentTarget.value = ''
+                if (!file) return
+                const form = new FormData()
+                form.append('file', file)
+                setUploadingImage(true)
+                setError('')
+                try {
+                  const uploaded = await api('/admin/media/upload', { method: 'POST', body: form })
+                  setEd((current: any) => ({ ...current, image: uploaded.url }))
+                  setM(current => [uploaded, ...current.filter(item => item.id !== uploaded.id)])
+                } catch (x: any) {
+                  setError(x.message || 'Could not upload the image.')
+                } finally {
+                  setUploadingImage(false)
+                }
+              }} />
+            </label>
+            {ed[f.k] && <img src={media(ed[f.k])} alt="Selected work" className="h-24 w-36 rounded object-cover" />}
+          </div>
           : <input type={f.t === 'num' ? 'number' : 'text'} className="inp mt-1" value={ed[f.k] ?? ''} onChange={e => setEd({ ...ed, [f.k]: f.t === 'num' ? +e.target.value : e.target.value })} />}
-        {f.t === 'img' && <div className="mt-2 flex flex-wrap gap-2">{media_.map(m => <img key={m.id} src={media(m.url)} onClick={() => setEd({ ...ed, image: m.url })} className={`h-12 w-12 cursor-pointer rounded object-cover ${ed.image === m.url ? 'ring-2 ring-lime' : ''}`} />)}</div>}</label>)}
-      <div className="flex justify-end gap-3"><button className="btn-g" onClick={() => setEd(null)}>Cancel</button><button className="btn-p" onClick={save}>Save</button></div></motion.div></div>}
+        {f.t === 'img' && <div className="mt-2 flex flex-wrap gap-2">{media_.map(m => <img key={m.id} src={media(m.url)} alt={m.title || 'Media image'} onClick={() => setEd({ ...ed, image: m.url })} className={`h-12 w-12 cursor-pointer rounded object-cover ${ed.image === m.url ? 'ring-2 ring-lime' : ''}`} />)}</div>}</div>)}
+      {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+      <div className="flex justify-end gap-3"><button className="btn-g" onClick={() => setEd(null)}>Cancel</button><button className="btn-p" disabled={uploadingImage} onClick={save}>Save</button></div></motion.div></div>}
     {detailItem && <RequestDetailModal item={detailItem} onClose={() => { setDetailItem(null); load() }} onStatusChange={async (_c, _id, st) => { await setStatus(detailItem, st); setDetailItem((prev: any) => ({ ...prev, status: st, itemStatus: st })) }} onNavigate={onNavigate} />}</div>
 }
 

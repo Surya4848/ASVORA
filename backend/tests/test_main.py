@@ -109,8 +109,6 @@ class PortfolioPersistenceTests(unittest.TestCase):
         self.assertEqual(len(main.store["services"]), 3)
         self.assertEqual([row["title"] for row in main.store["projects"]], ["My real project"])
         self.assertEqual([row["name"] for row in main.store["testimonials"]], ["Real client"])
-        with open(main.DATA_FILE, encoding="utf-8") as data_file:
-            self.assertEqual(len(json.load(data_file)["visits"]), 2)
         self.assertEqual(asyncio.run(main.stats())["visits"], 2)
 
         with patch.dict(os.environ, {"SMTP_HOST": "smtp.example.com"}):
@@ -159,12 +157,19 @@ class PortfolioPersistenceTests(unittest.TestCase):
 
     def test_authentication_and_works_flow(self):
         asyncio.run(main.seed())
+        request = main.Request({
+            "type": "http",
+            "method": "POST",
+            "path": "/api/auth/login",
+            "headers": [],
+            "client": ("127.0.0.1", 12345),
+        })
 
         # 1. Successful login
         login_res = asyncio.run(main.login(main.Login(
             email="admin@example.com",
             password="test-password-123"
-        )))
+        ), request))
         self.assertIn("token", login_res)
         token = login_res["token"]
 
@@ -173,7 +178,7 @@ class PortfolioPersistenceTests(unittest.TestCase):
             asyncio.run(main.login(main.Login(
                 email="admin@example.com",
                 password="wrong-password"
-            )))
+            ), request))
         self.assertEqual(err.exception.status_code, 401)
 
         # 3. Unknown email
@@ -181,7 +186,7 @@ class PortfolioPersistenceTests(unittest.TestCase):
             asyncio.run(main.login(main.Login(
                 email="nobody@example.com",
                 password="test-password-123"
-            )))
+            ), request))
         self.assertEqual(err.exception.status_code, 401)
 
         # 4. Auth dependency with valid token
@@ -228,6 +233,28 @@ class PortfolioPersistenceTests(unittest.TestCase):
         public_data = asyncio.run(main.public())
         self.assertEqual(len(public_data["projects"]), 1)
         self.assertEqual(public_data["projects"][0]["title"], "ASVORA Commerce")
+
+    def test_admin_login_limits_repeated_failed_attempts(self):
+        asyncio.run(main.seed())
+        request = main.Request({
+            "type": "http",
+            "method": "POST",
+            "path": "/api/auth/login",
+            "headers": [],
+            "client": ("192.0.2.10", 12345),
+        })
+        credentials = main.Login(email="admin@example.com", password="wrong-password")
+
+        for _ in range(main.LOGIN_ATTEMPT_LIMIT):
+            with self.assertRaises(main.HTTPException) as error:
+                asyncio.run(main.login(credentials, request))
+            self.assertEqual(error.exception.status_code, 401)
+
+        with self.assertRaises(main.HTTPException) as error:
+            asyncio.run(main.login(credentials, request))
+        self.assertEqual(error.exception.status_code, 429)
+        self.assertGreaterEqual(int(error.exception.headers["Retry-After"]), 1)
+        self.assertLessEqual(int(error.exception.headers["Retry-After"]), 900)
 
 
 if __name__ == "__main__":

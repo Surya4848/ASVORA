@@ -371,7 +371,7 @@ function QuoteModal({
 
   useEffect(() => {
     if (isOpen) {
-      setF({ name: '', email: '', service: initialService || (d.services[0]?.title || ''), message: '' })
+      setF({ name: '', email: '', service: initialService || '', message: '' })
       setSt('')
       setSending(false)
     }
@@ -482,38 +482,28 @@ function QuoteModal({
                     />
                   </label>
                 </div>
-                <label className="block text-xs text-white/60">
-                  Phone Number *
-                  <div className="flex gap-2 mt-1">
-                    <select
-                      className="inp w-28 bg-panel text-white cursor-pointer shrink-0"
-                      value={f.countryCode || '+91'}
-                      onChange={e => setF({ ...f, countryCode: e.target.value })}
-                    >
-                      <option value="+91" className="bg-panel text-white">🇮🇳 +91</option>
-                      <option value="+1" className="bg-panel text-white">🇺🇸 +1</option>
-                      <option value="+44" className="bg-panel text-white">🇬🇧 +44</option>
-                      <option value="+61" className="bg-panel text-white">🇦🇺 +61</option>
-                      <option value="+971" className="bg-panel text-white">🇦🇪 +971</option>
-                    </select>
+                  
+<label className="block text-xs text-white/60">
+  Phone Number *
+  <input
+    required
+    type="tel"
+    inputMode="numeric"
+    autoComplete="tel-national"
+    className="inp w-full mt-1"
+    placeholder="Enter 10-digit mobile number"
+    value={f.phone || ''}
+    onChange={(e) =>
+      setF({
+        ...f,
+        phone: e.target.value.replace(/\D/g, '').slice(0, 10),
+      })
+    }
+    pattern="[6-9][0-9]{9}"
+    title="Enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9"
+  />
+</label>
 
-                    <input
-                      required
-                      type="tel"
-                      className="inp flex-1"
-                      placeholder="Phone Number"
-                      value={f.phone || ''}
-                      onChange={e =>
-                        setF({
-                          ...f,
-                          phone: e.target.value.replace(/\D/g, '').slice(0, (f.countryCode || '+91') === '+91' ? 10 : 15),
-                        })
-                      }
-                      pattern={(f.countryCode || '+91') === '+91' ? '[6-9][0-9]{9}' : '[0-9]{6,15}'}
-                      title={(f.countryCode || '+91') === '+91' ? 'Enter a valid 10-digit Indian mobile number' : 'Enter a valid phone number'}
-                    />
-                  </div>
-                </label>
                 <label className="block text-xs text-white/60">
                   Select Service *
                   <select
@@ -724,9 +714,9 @@ function ServicesPage({ d, onStartProject }: { d: any; onStartProject: (serviceT
 
   const setFilter = (title: string) => {
     if (!title) {
-      setParams({})
+      setParams({}, { replace: true })
     } else {
-      setParams({ service: title })
+      setParams({ service: title }, { replace: true })
     }
   }
 
@@ -918,9 +908,9 @@ function WorksPage({ d, onStartProject }: { d: any; onStartProject: (serviceTitl
 
   const setFilter = (title: string) => {
     if (!title) {
-      setParams({})
+      setParams({}, { replace: true })
     } else {
-      setParams({ service: title })
+      setParams({ service: title }, { replace: true })
     }
   }
 

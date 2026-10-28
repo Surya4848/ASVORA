@@ -1,18 +1,20 @@
 import datetime as dt
 import asyncio
-import logging
-import json
-import os
-import re
+import hashlib
+import logging
+import json
+import os
+import re
 import smtplib
 import sqlite3
 import tempfile
-import uuid
+import time
+import uuid
 from collections import Counter
 from contextlib import asynccontextmanager, contextmanager
 from email.message import EmailMessage
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
@@ -39,6 +41,8 @@ SECRET = E("JWT_SECRET", "").strip()
 logger = logging.getLogger(__name__)
 pwd = CryptContext(schemes=["pbkdf2_sha256"])
 oauth = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+LOGIN_ATTEMPT_LIMIT = 5
+LOGIN_ATTEMPT_WINDOW_SECONDS = 15 * 60
 
 cors_origins_raw = E("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
 cors_origins = [origin.strip() for origin in cors_origins_raw.split(",") if origin.strip()]
@@ -132,7 +136,7 @@ def load_store():
         for key, value in CONTENT.items():
             if key not in content:
                 content[key] = value
-    if is_mongo_available() and metadata and (initialized or has_mongo_data):
+    if is_mongo_available() and metadata is not None and (initialized or has_mongo_data):
         metadata.update_one(
             {"_id": "initialized"},
             {"$set": {"database": MONGO_DB_NAME}},
@@ -278,7 +282,8 @@ def init_analytics():
         db.execute("CREATE INDEX IF NOT EXISTS visits_created_idx ON visits(created)")
         db.execute("CREATE INDEX IF NOT EXISTS visits_path_idx ON visits(path)")
         db.execute("CREATE TABLE IF NOT EXISTS analytics_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-        migrated = db.execute("SELECT 1 FROM analytics_meta WHERE key = 'json_visits_migrated'").fetchone()
+        db.execute("CREATE TABLE IF NOT EXISTS login_attempts (scope TEXT PRIMARY KEY, attempts INTEGER NOT NULL, window_start REAL NOT NULL)")
+        migrated = db.execute("SELECT 1 FROM analytics_meta WHERE key = 'json_visits_migrated'").fetchone()
         if not migrated:
             if os.path.exists(DATA_FILE):
                 with open(DATA_FILE, encoding="utf-8") as data_file:
@@ -303,9 +308,66 @@ def init_analytics():
                     migration_rows,
                 )
             db.execute("INSERT INTO analytics_meta(key, value) VALUES ('json_visits_migrated', '1')")
-
-
-def migrate_legacy_content():
+
+
+def login_attempt_scopes(client_ip: str, email: str) -> tuple[str, str]:
+    return (
+        hashlib.sha256(f"ip:{client_ip}".encode("utf-8")).hexdigest(),
+        hashlib.sha256(f"account:{email}".encode("utf-8")).hexdigest(),
+    )
+
+
+def login_rate_limit(scopes: tuple[str, str]) -> int | None:
+    current_time = time.time()
+    placeholders = ",".join("?" for _ in scopes)
+    with analytics_connection() as db:
+        db.execute(
+            "DELETE FROM login_attempts WHERE window_start + ? <= ?",
+            (LOGIN_ATTEMPT_WINDOW_SECONDS, current_time),
+        )
+        rows = db.execute(
+            f"SELECT window_start FROM login_attempts WHERE scope IN ({placeholders}) AND attempts >= ?",
+            (*scopes, LOGIN_ATTEMPT_LIMIT),
+        ).fetchall()
+    retry_after = [
+        max(1, int(start + LOGIN_ATTEMPT_WINDOW_SECONDS - current_time))
+        for (start,) in rows
+        if start + LOGIN_ATTEMPT_WINDOW_SECONDS > current_time
+    ]
+    return max(retry_after) if retry_after else None
+
+
+def record_login_failure(scopes: tuple[str, str]) -> None:
+    current_time = time.time()
+    with analytics_connection() as db:
+        db.executemany(
+            """
+            INSERT INTO login_attempts(scope, attempts, window_start) VALUES (?, 1, ?)
+            ON CONFLICT(scope) DO UPDATE SET
+                attempts = CASE
+                    WHEN login_attempts.window_start + ? <= ? THEN 1
+                    ELSE login_attempts.attempts + 1
+                END,
+                window_start = CASE
+                    WHEN login_attempts.window_start + ? <= ? THEN excluded.window_start
+                    ELSE login_attempts.window_start
+                END
+            """,
+            [
+                (scope, current_time, LOGIN_ATTEMPT_WINDOW_SECONDS, current_time,
+                 LOGIN_ATTEMPT_WINDOW_SECONDS, current_time)
+                for scope in scopes
+            ],
+        )
+
+
+def clear_login_failures(scopes: tuple[str, str]) -> None:
+    placeholders = ",".join("?" for _ in scopes)
+    with analytics_connection() as db:
+        db.execute(f"DELETE FROM login_attempts WHERE scope IN ({placeholders})", scopes)
+
+
+def migrate_legacy_content():
     content = find_one("content", _id="site")
     changed = False
     if content:
@@ -452,11 +514,23 @@ def issue_token(email: str):
 
 
 @app.post("/api/auth/login")
-async def login(b: Login):
-    admin = find_one("admins", email=str(b.email))
-    if not admin or not pwd.verify(b.password, admin["hash"]):
-        raise HTTPException(401, "Invalid credentials")
-    return {"token": issue_token(admin["email"])}
+async def login(b: Login, request: Request):
+    email = str(b.email).strip().lower()
+    client_ip = request.client.host if request.client else "unknown"
+    scopes = login_attempt_scopes(client_ip, email)
+    retry_after = login_rate_limit(scopes)
+    if retry_after is not None:
+        raise HTTPException(
+            429,
+            "Too many failed login attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    admin = find_one("admins", email=str(b.email))
+    if not admin or not pwd.verify(b.password, admin["hash"]):
+        record_login_failure(scopes)
+        raise HTTPException(401, "Invalid credentials")
+    clear_login_failures(scopes)
+    return {"token": issue_token(admin["email"])}
 
 
 @app.get("/api/auth/me")
